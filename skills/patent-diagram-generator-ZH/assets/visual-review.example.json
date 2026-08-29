@@ -1,0 +1,31 @@
+{
+  "schema_id": "cn-patent-drawing-visual-review/v1",
+  "reviewed_at": "2026-08-28T00:00:00+08:00",
+  "reviewer": "人工复核者",
+  "figures": [
+    {
+      "figure_number": 1,
+      "png_path": "02-申请文件/说明书附图/图1-条件处理流程图.png",
+      "png_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "checks": {
+        "text_legible": true,
+        "no_text_overlap": true,
+        "no_edge_crossing": true,
+        "no_edge_through_node": true,
+        "no_arrow_ambiguity": true,
+        "labels_adjacent": true,
+        "monochrome": false,
+        "restrained_color": true,
+        "grayscale_safe": true,
+        "no_figure_number_on_canvas": true,
+        "no_unnecessary_detours": true,
+        "consistent_typography": true,
+        "balanced_spacing": true,
+        "clear_visual_hierarchy": true,
+        "formal_patent_style": true
+      },
+      "approved": true,
+      "notes": "已查看 Draw.io 官方 CLI 导出的最终 PNG。"
+    }
+  ]
+}

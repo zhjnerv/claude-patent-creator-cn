@@ -1,0 +1,177 @@
+"""CN v2 claims raw checker regression tests."""
+
+from __future__ import annotations
+
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "skills/patent-claims-analyzer-CN/scripts/check_claims_cn.py"
+
+
+def load_script():
+    spec = importlib.util.spec_from_file_location("cn_claims_checker_v2", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+checker = load_script()
+
+
+class ClaimsCheckerV2Tests(unittest.TestCase):
+    def test_v2_raw_report_has_exact_top_level_fields_and_advisory_effect(self):
+        report = checker.analyze_claims("1. 一种数据处理装置，包括控制器。")
+        self.assertEqual(report["schema_version"], "cn-patent-review-raw-report/v2")
+        self.assertEqual(report["legal_effect"], "ADVISORY_ONLY")
+        self.assertEqual(
+            set(report),
+            {
+                "schema_version", "jurisdiction", "review_type", "legal_effect", "report_id",
+                "input_artifacts", "rule_sources", "tool_identity", "evidence_binding",
+                "resource_limits", "resource_usage", "checks_performed", "findings", "gaps",
+            },
+        )
+        self.assertEqual(report["resource_usage"]["finding_count"], len(report["findings"]))
+        self.assertEqual(report["resource_usage"]["gap_count"], len(report["gaps"]))
+        self.assertGreater(report["resource_usage"]["output_bytes"], 0)
+
+    def test_findings_and_gaps_have_stable_exact_contract_fields(self):
+        report = checker.analyze_claims("1. 一种装置，包括【待填：参数】。")
+        finding = next(item for item in report["findings"] if item["rule_id"] == "CN-CLAIM-DRAFT-001")
+        self.assertEqual(
+            set(finding),
+            {"finding_id", "check_id", "rule_id", "target_id", "location", "status", "evidence", "problem", "remedy", "manual_review_required"},
+        )
+        self.assertEqual([set(item) for item in finding["evidence"]], [{"artifact_id", "location", "excerpt"}])
+        gap = report["gaps"][0]
+        self.assertEqual(set(gap), {"gap_id", "check_id", "rule_id", "target_id", "category", "reason", "evidence", "blocks_assessment"})
+        repeat = checker.analyze_claims("1. 一种装置，包括【待填：参数】。")
+        self.assertEqual(report["findings"][0]["finding_id"], repeat["findings"][0]["finding_id"])
+
+    def test_reference_leads_only_create_candidate_or_unresolved_states(self):
+        candidate = checker.analyze_claims("1. 一种装置。\n2. 根据权利要求1所述的装置。")
+        candidate_finding = next(item for item in candidate["findings"] if item["rule_id"] == "CN-CLAIM-REF-PARSE-001")
+        self.assertEqual(candidate_finding["status"], "REVIEW_REQUIRED")
+        self.assertIn("PARSE_UNRESOLVED", {item["category"] for item in candidate["gaps"]})
+        unresolved = checker.analyze_claims("1. 一种装置。\n2. 根据权利要求甲所述的装置。")
+        self.assertIn("PARSE_UNRESOLVED", {item["category"] for item in unresolved["gaps"]})
+        self.assertFalse(any(item["rule_id"] == "CN-CLAIM-REF-001" and item["status"] == "DETERMINISTIC_FAIL" for item in candidate["findings"]))
+
+    def test_multiple_dependent_conjunctive_and_nested_multi_fail(self):
+        report = checker.analyze_claims(
+            "1. 一种装置。\n"
+            "2. 一种方法。\n"
+            "3. 根据权利要求1和2所述的装置。\n"
+            "4. 根据权利要求1或3所述的装置，还包括传感器。\n"
+        )
+        multi = [item for item in report["findings"] if item["rule_id"] == "CN-CLAIM-MULTI-001"]
+        self.assertTrue(any(item["status"] == "DETERMINISTIC_FAIL" and "并列" in item["problem"] for item in multi))
+        self.assertTrue(any(item["status"] == "DETERMINISTIC_FAIL" and "另一项多项从属" in item["problem"] for item in multi))
+        alternative = checker.analyze_claims(
+            "1. 一种装置。\n"
+            "2. 一种方法。\n"
+            "3. 根据权利要求1或2所述的装置。\n"
+        )
+        self.assertFalse(
+            any(
+                item["rule_id"] == "CN-CLAIM-MULTI-001" and item["status"] == "DETERMINISTIC_FAIL"
+                for item in alternative["findings"]
+            )
+        )
+
+    def test_reference_target_self_forward_and_missing_are_deterministic(self):
+        report = checker.analyze_claims(
+            "1. 一种装置。\n"
+            "2. 根据权利要求2所述的装置。\n"
+            "3. 根据权利要求9所述的装置。\n"
+            "4. 根据权利要求5所述的装置。\n"
+            "5. 一种方法。\n"
+        )
+        ref_findings = [item for item in report["findings"] if item["rule_id"] == "CN-CLAIM-REF-001"]
+        problems = "；".join(item["problem"] for item in ref_findings)
+        self.assertIn("引用自身", problems)
+        self.assertIn("向后引用", problems)
+        self.assertIn("不存在", problems)
+        ref_check = next(item for item in report["checks_performed"] if item["check_id"] == "claim-reference-graph")
+        self.assertEqual(ref_check["status"], "PARTIAL")
+        self.assertTrue(ref_check["finding_ids"])
+
+    def test_function_and_dependent_semantic_rules_emit_fixed_gaps(self):
+        report = checker.analyze_claims("1. 一种装置。")
+        gap_rules = {item["rule_id"] for item in report["gaps"]}
+        self.assertIn("CN-CLAIM-FUNCTION-001", gap_rules)
+        self.assertIn("CN-CLAIM-DEPENDENT-001", gap_rules)
+        for rule_id in ("CN-CLAIM-FUNCTION-001", "CN-CLAIM-DEPENDENT-001"):
+            gap = next(item for item in report["gaps"] if item["rule_id"] == rule_id)
+            self.assertEqual(gap["category"], "SEMANTIC_REVIEW_NOT_PERFORMED")
+
+    def test_large_number_is_rejected_without_range_allocation(self):
+        with self.assertRaises(checker.ResourceLimitError):
+            checker.analyze_claims("1000001. 一种装置。")
+        report = checker.analyze_claims("1. 一种装置。\n3. 一种方法。")
+        evidence = [entry["excerpt"] for item in report["findings"] if item["rule_id"] == "CN-CLAIM-NUM-001" for entry in item["evidence"]]
+        self.assertIn("2-2", evidence)
+
+    def test_iterative_cycle_algorithm_handles_deep_graph_without_recursion(self):
+        graph = {number: (number - 1,) for number in range(2, 1500)}
+        graph[1] = (1499,)
+        cycles = checker.detect_cycles_iterative(graph, checker.Budget())
+        self.assertEqual(len(cycles), 1)
+        self.assertEqual(cycles[0][0], 1)
+        self.assertEqual(cycles[0][-1], 1)
+
+    def test_cli_rejects_bom_and_resource_failures_with_exit_four_and_no_output(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            input_path = root / "claims.txt"
+            output_path = root / "report.json"
+            input_path.write_bytes(b"\xef\xbb\xbf1. \xe4\xb8\x80\xe7\xa7\x8d\xe8\xa3\x85\xe7\xbd\xae\xe3\x80\x82\n")
+            self.assertEqual(checker.main(["--input", str(input_path), "--output", str(output_path)]), 3)
+            self.assertFalse(output_path.exists())
+            input_path.write_bytes(b"1. " + b"x" * (checker.MAX_INPUT_BYTES + 1))
+            self.assertEqual(checker.main(["--input", str(input_path), "--output", str(output_path)]), 4)
+            self.assertFalse(output_path.exists())
+
+    def test_cli_writes_atomic_independent_raw_report_and_preserves_input(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            input_path = root / "claims.txt"
+            output_path = root / "report.json"
+            original = "1. 一种装置。\n"
+            input_path.write_text(original, encoding="utf-8")
+            self.assertEqual(checker.main(["--input", str(input_path), "--output", str(output_path)]), 0)
+            self.assertEqual(input_path.read_text(encoding="utf-8"), original)
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], checker.SCHEMA_VERSION)
+            self.assertEqual(list(root.glob(".*.tmp")), [])
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(checker.main(["--input", str(input_path), "--output", str(root / "." / "claims.txt")]), 3)
+            self.assertEqual(input_path.read_text(encoding="utf-8"), original)
+
+    def test_atomic_replace_failure_preserves_existing_report(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output_path = root / "report.json"
+            output_path.write_text("old", encoding="utf-8")
+            report = checker.analyze_claims("1. 一种装置。")
+            with mock.patch.object(checker.os, "replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    checker.write_result(report, output_path)
+            self.assertEqual(output_path.read_text(encoding="utf-8"), "old")
+            self.assertEqual(list(root.glob(".*.tmp")), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

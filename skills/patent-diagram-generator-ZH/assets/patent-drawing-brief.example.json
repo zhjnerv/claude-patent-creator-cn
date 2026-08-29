@@ -1,0 +1,123 @@
+{
+  "schema_id": "cn-patent-drawing-brief/v2",
+  "case_id": "示例案件",
+  "generated_at": "2026-08-28",
+  "source_artifacts": [
+    {
+      "artifact_id": "claims",
+      "path": "../权利要求书.md",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "artifact_id": "specification",
+      "path": "../说明书.md",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "artifact_id": "feature_ledger",
+      "path": "../../01-检索/feature-ledger.json",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "output_root": "../说明书附图",
+  "global_constraints": {
+    "figure_number_on_canvas": false,
+    "edge_labels_allowed": false,
+    "annotation_nodes_may_be_edge_endpoints": false,
+    "official_drawio_export_required": true,
+    "visual_review_required": true,
+    "minimum_png_dpi": 300,
+    "color_policy": {
+      "mode": "restrained_color",
+      "grayscale_safe": true,
+      "color_semantics_redundant": true,
+      "max_nonwhite_fills": 3,
+      "allowed_fill_colors": [
+        "#FFFFFF",
+        "#EAF2F8",
+        "#EEF4EA",
+        "#F8F2E6",
+        "#F4F4F4"
+      ],
+      "allowed_stroke_colors": [
+        "#202020",
+        "#405F73",
+        "#52634E",
+        "#706347",
+        "#4A4A4A",
+        "#666666"
+      ],
+      "palette_asset": "assets/patent-restrained-color.json"
+    }
+  },
+  "visual_review_path": "visual-review.json",
+  "figures": [
+    {
+      "figure_number": 1,
+      "title": "条件处理流程图",
+      "file_stem": "图1-条件处理流程图",
+      "diagram_type": "method_flowchart",
+      "orientation": "portrait",
+      "purpose": "表示条件校验和处理分支",
+      "claim_numbers": [
+        1
+      ],
+      "spec_anchors": [
+        "条件校验"
+      ],
+      "elements": [
+        {
+          "id": "S100",
+          "label": "开始",
+          "kind": "start_end",
+          "reference_sign": "S100",
+          "source_anchor": "开始处理"
+        },
+        {
+          "id": "S110",
+          "label": "条件满足？",
+          "kind": "decision",
+          "reference_sign": "S110",
+          "source_anchor": "条件校验"
+        },
+        {
+          "id": "S120",
+          "label": "执行处理",
+          "kind": "step",
+          "reference_sign": "S120",
+          "source_anchor": "执行处理"
+        }
+      ],
+      "relations": [
+        {
+          "id": "R1",
+          "source": "S100",
+          "target": "S110",
+          "kind": "control",
+          "preferred_direction": "vertical",
+          "direct_connection_required": true,
+          "source_anchor": "条件校验"
+        },
+        {
+          "id": "R2",
+          "source": "S110",
+          "target": "S120",
+          "label": "是",
+          "kind": "control",
+          "preferred_direction": "vertical",
+          "direct_connection_required": true,
+          "source_anchor": "条件满足时"
+        }
+      ],
+      "outputs": {
+        "drawio": "../说明书附图/图1-条件处理流程图.drawio",
+        "preview_png": "preview/图1-条件处理流程图.png",
+        "final_png": "../说明书附图/图1-条件处理流程图.png",
+        "export_report": "export/图1-export.json",
+        "drawio_lint_report": "lint/图1.json"
+      },
+      "style_profile": "patent_restrained_color"
+    }
+  ],
+  "production_skill": "drawio-skill"
+}
