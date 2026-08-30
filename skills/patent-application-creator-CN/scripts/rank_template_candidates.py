@@ -143,7 +143,9 @@ def build_epo_resolver(command: str | None = None) -> Callable[[str], tuple[list
             attempt["reason"] = "未配置 CN_PATENT_EPO_PROVIDER_COMMAND"
             return [], attempt
         try:
-            argv = shlex.split(raw_command)
+            # Windows 下 shlex 默认 POSIX 模式会把反斜杠当转义符，
+            # 导致 python.exe 这类带路径的命令被拆坏；POSIX 平台保持默认语义。
+            argv = shlex.split(raw_command, posix=os.name != "nt")
         except ValueError as exc:
             attempt.update(status="error", reason=f"provider 命令解析失败：{exc}")
             return [], attempt

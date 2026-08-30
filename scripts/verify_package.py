@@ -55,7 +55,9 @@ def main() -> int:
             errors.append(f"不应引入主项目重型依赖：{dependency}")
 
     for path in ROOT.rglob("*"):
-        if "__pycache__" in path.parts or path.suffix == ".pyc":
+        if path.suffix == ".pyc" and "__pycache__" not in path.parts:
+            # __pycache__ 是 Python 运行期字节码缓存目录（.gitignore 已排除），
+            # 不属于违规缓存；只对游离在缓存目录外的 .pyc 报错，防误提交编译产物。
             errors.append(f"存在缓存产物：{path.relative_to(ROOT)}")
             continue
         if not path.is_file():

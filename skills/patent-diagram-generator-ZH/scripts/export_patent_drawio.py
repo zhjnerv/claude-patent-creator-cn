@@ -33,6 +33,7 @@ def find_drawio() -> str:
     for candidate in (
         Path("/Applications/draw.io.app/Contents/MacOS/draw.io"),
         Path(r"C:\Program Files\draw.io\draw.io.exe"),
+        Path(os.environ.get("LOCALAPPDATA", ""), r"Programs\draw.io\draw.io.exe"),
     ):
         if candidate.is_file():
             return str(candidate)
@@ -53,6 +54,9 @@ def run_export(binary: str, source: Path, output: Path, fmt: str, width: int, bo
             binary, "-x", "-f", fmt, "--size", "page", "--theme", "light",
             "--border", str(border), "-o", str(temp),
         ]
+        if os.name == "nt":
+            # Windows 无头/远端会话下 Electron 需要软件渲染，否则 GPU 进程崩溃导致导出失败
+            command.extend(["--no-sandbox", "--disable-gpu", "--use-gl=swiftshader"])
         if fmt in {"png", "jpg", "svg"}:
             command.extend(["--width", str(width)])
         command.append(str(source))
