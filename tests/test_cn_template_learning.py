@@ -238,7 +238,7 @@ def test_skill_and_orchestrator_bind_template_learning_handoff():
     for artifact in (
         "search-query.json",
         "template-selection.json",
-        "cn-patent-feature-ledger/v1",
+        "cn-patent-feature-ledger/v2",
         "cn-patent-stage2-gate/v2",
     ):
         assert artifact in stage_map

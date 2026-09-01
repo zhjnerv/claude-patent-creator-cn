@@ -55,25 +55,31 @@ def main() -> int:
             errors.append(f"不应引入主项目重型依赖：{dependency}")
 
     for path in ROOT.rglob("*"):
+        try:
+            relative = path.relative_to(ROOT)
+        except ValueError:
+            continue
+        if ".git" in relative.parts or ".pytest_cache" in relative.parts:
+            continue
         if path.suffix == ".pyc" and "__pycache__" not in path.parts:
             # __pycache__ 是 Python 运行期字节码缓存目录（.gitignore 已排除），
             # 不属于违规缓存；只对游离在缓存目录外的 .pyc 报错，防误提交编译产物。
-            errors.append(f"存在缓存产物：{path.relative_to(ROOT)}")
+            errors.append(f"存在缓存产物：{relative}")
             continue
         if not path.is_file():
             continue
         raw = path.read_bytes()
         if raw.startswith(b"\xef\xbb\xbf"):
-            errors.append(f"文件含 UTF-8 BOM：{path.relative_to(ROOT)}")
+            errors.append(f"文件含 UTF-8 BOM：{relative}")
         if path.suffix == ".json":
             try:
                 json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                errors.append(f"JSON 无效：{path.relative_to(ROOT)}：{exc}")
+                errors.append(f"JSON 无效：{relative}：{exc}")
         if path.suffix in {".py", ".md"} and path.resolve() != Path(__file__).resolve():
             text = raw.decode("utf-8", errors="replace")
             if "from mcp_server" in text or "import mcp_server" in text:
-                errors.append(f"存在对主项目 mcp_server 的反向依赖：{path.relative_to(ROOT)}")
+                errors.append(f"存在对主项目 mcp_server 的反向依赖：{relative}")
 
     report = {
         "schema_id": "cn-patent-skill-package-verification/v1",

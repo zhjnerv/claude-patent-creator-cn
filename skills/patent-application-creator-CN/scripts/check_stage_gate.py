@@ -563,11 +563,16 @@ def check_ledger(state: dict[str, Any], gate: Gate, workspace: Path) -> None:
     except GateError as exc:
         gate.block("GATE-LEDGER-002", str(exc), "修正区别特征表")
         return
-    if ledger.get("schema_id") != "cn-patent-feature-ledger/v1":
+    expected_ledger_schema = (
+        "cn-patent-feature-ledger/v2"
+        if state.get("schema_id") == SCHEMA_ID_V2
+        else "cn-patent-feature-ledger/v1"
+    )
+    if ledger.get("schema_id") != expected_ledger_schema:
         gate.block(
             "GATE-LEDGER-002",
-            "feature-ledger.json 的 schema_id 不是 cn-patent-feature-ledger/v1",
-            "按 v1 合同重建区别特征表",
+            f"feature-ledger.json 的 schema_id 不是 {expected_ledger_schema}",
+            "新案件按 v2 关系台账重建；v1 仅用于旧案件回放",
         )
         return
     features = ledger.get("features")

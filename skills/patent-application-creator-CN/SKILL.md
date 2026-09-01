@@ -217,11 +217,15 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-ap
 
 权利要求书、说明书和说明书附图各自持有一份技术事实副本、彼此只靠散文连接，是本工作流最深的结构性缺陷：范本学习、检索边界和起草三段各记一套特征编号，谁也对不上谁。**这三份法定文件必须由同一张台账派生。**
 
-台账固定使用 `cn-patent-feature-ledger/v1`（schema 见 `references/feature-ledger-schema.json`），每个特征登记一次并绑定它在三份文件中的落点：
+新案件固定使用 `cn-patent-feature-ledger/v2`（schema 见 `references/feature-ledger-schema-v2.json`）；v1 仅用于旧案件回放。v2 台账，每个特征登记一次并绑定它在三份文件中的落点：
 
 - `classification`：`preamble`（与最接近现有技术共有，写入独权前序）／`distinguishing`（区别特征，写入特征部分或从属项）／`fallback_only`（不进权利要求，仅作第三十三条弹药写入说明书）；
 - `prior_art_status.verdict`：**没有 `novel` 这个取值**。检索只支持"截至〔日期〕在〔已检索出口〕中未发现"，不支持"不存在现有技术"；
 - `evidence`：来自**实现本身**的证据位置，不是挖掘 agent 的摘要；
+- `flow`：逐特征记录动作阶段、输入对象、处理主体、处理动作、输出对象、下游特征和异常路径；
+- `claim_data_flows`：逐项独立权利要求记录入口、顺序链、汇合点、正常出口、异常出口和存储点；
+- `method_system_pairs`：复算方法独权和系统独权是否覆盖同一必要数据链，系统侧必须登记实际处理模块；
+- `exception_paths`：按触发条件、分支动作、结果值、置信度、检查级终态、原因码和存储字段闭合；
 - `claim_sites` / `spec_sites` / `drawing_sites`：三份文件中的落点。附图落点区分 `component`（部件标记，须进附图标记清单）与 `step`（步骤号，**不进**附图标记清单）——两者共用同一数字空间时，任何按数字做的图文自动核对都会误报。
 
 建立台账后跑四向对账，并产出人类可读的区别特征表：
@@ -232,7 +236,8 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-ap
   --claims "<权利要求书.txt>" \
   --specification "<说明书.txt>" \
   --output "<feature-ledger-report.json>" \
-  --table "<区别特征表.md>"
+  --table "<区别特征表.md>" \
+  --drawing-brief "<drawing-brief.json>"  # 绘图合同形成后追加复算
 ```
 
 对账方向是四条，缺一不可：台账→权利要求（登记的落点在原文中确实存在）、权利要求→台账（每一项权利要求都有台账来源，没有孤儿项）、台账→说明书（每个特征在说明书有可检索到的落点）、台账↔附图标记清单（互为全集，且步骤号不混入清单）。
@@ -267,6 +272,8 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-ap
 
 **权利要求、说明书和附图都从区别特征表派生，不各自另起炉灶。** 独权前序取 `preamble` 特征，特征部分取写入独权的 `distinguishing` 特征，其余 `distinguishing` 下沉从属项，`fallback_only` 只进说明书。任何一份文件改完即重跑 2-D 的四向对账。
 
+**权利要求完成后必须先过数据流复算门，再写附图。** 对每项方法/系统独权按“入口→处理主体→中间结果→汇合→正常/异常出口→存储”检查；每个动词必须区分 `preconfigured`、`runtime_input`、`runtime_processing`、`runtime_output`、`postprocessing`。配置动作不得伪装成每次运行必做步骤，系统独权不得遗漏实际解析、聚合、存储等处理主体。任何异常或退守路径必须同时确定是否产生结果值、置信度、终态、原因码和存储字段。
+
 - **独立权利要求必须记载解决技术问题的全部必要技术特征**（实施细则第二十三条第二款；指南第二部分第二章）。少写一个必要特征会被以"缺少必要技术特征"驳回，多写一个非必要特征则白白缩小保护范围——这是中国独权撰写最容易两头翻车的地方。
 - **前序部分＋特征部分**（实施细则第二十三条第一款）：前序写与最接近现有技术共有的特征，特征部分写区别特征。特征部分放什么，直接决定阶段 5 三步法答辩时"区别特征"这一栏长什么样。
 - **从属权利要求的引用形式**（实施细则第二十二条至第二十五条；指南第一部分第一章 4.4、第二部分第二章 3.3）：编号连续、引用在前权利要求；多项从属只能**择一**引用，且不得作为另一项多项从属权利要求的引用基础。写法用"根据权利要求 N 所述的……，其特征在于……"完整形式，不用简写。
@@ -280,7 +287,7 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-ap
 
 **终态完备性。** 任何断言确定性终止、有界重试或保证结果的说明书，都必须穷举每一个终态和每一次预算转换——包括不体面的那些（机械性耗尽、全局超限兜底）——附图必须用带标签的边展示每个分支。
 
-**附图。** 本技能不直接承担 Draw.io 布局和导出。先依据权利要求、说明书与 `feature-ledger.json` 生成 `cn-patent-drawing-brief/v2`，冻结图号、图型、技术元素、部件标记、步骤号、关系、来源锚点、配色策略和输出路径；通过 `patent-diagram-generator-ZH/scripts/validate_drawing_brief.py` 后，将合同交给 `patent-diagram-generator-ZH`，由其调用专业 `drawio-skill` 完成实际布局、原生 `.drawio` 制作、Draw.io Desktop CLI 官方导出和视觉迭代。专利图可选黑白或克制彩色，但颜色不得成为唯一语义载体。最终必须产生 `visual-review.json` 和 `final-verification.json`，并由 `verify_patent_drawings.py` 复算来源哈希、标记、关系、路由、配色、官方导出和视觉记录；退出码非零时不得进入 DOCX 组装。附图标记的**分配**属于本阶段，不得推迟到制图端。
+**附图。** 本技能不直接承担 Draw.io 布局和导出。先依据权利要求、说明书与 `feature-ledger.json` 生成 `cn-patent-drawing-brief/v3`，冻结图号、单图唯一问题、阅读层级、复杂度预算、技术元素、部件标记、步骤号、关系通道、正常/异常出口、正文图示声明、来源锚点、配色策略和输出路径；通过 `patent-diagram-generator-ZH/scripts/validate_drawing_brief.py` 后，将合同交给 `patent-diagram-generator-ZH`，由其调用专业 `drawio-skill` 完成实际布局、原生 `.drawio` 制作、Draw.io Desktop CLI 官方导出和视觉迭代。专利图可选黑白或克制彩色，但颜色不得成为唯一语义载体。最终必须产生 `visual-review.json` 和 `final-verification.json`，并由 `verify_patent_drawings.py` 复算来源哈希、标记、关系、路由、配色、官方导出和视觉记录；退出码非零时不得进入 DOCX 组装。附图标记的**分配**属于本阶段，不得推迟到制图端。
 
 ## 说明书输出格式（强制）
 
@@ -392,9 +399,9 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-re
 - “技术领域、背景技术、发明内容、附图说明、具体实施方式”使用模板的 `Heading 1` 段落样式，并对标题文字应用 Word `Strong` 字符样式（中文界面显示为“要点”），不得只设置 `bold=True`；
 - 数学表达式必须转换为 Word 原生 `m:oMath` 对象。Windows 上调用 Microsoft Word 的 `OMaths.Add` / `BuildUp` 生成上下标、分式和幂；普通字符或公式截图均不得作为完成状态；
 - 说明书附图按 `说明书附图.md` 顺序读取，SVG 链接优先选同名 PNG 内嵌；摘要附图从 `说明书摘要.md` 的“摘要附图：图N。”机械确定；
-- 脚本必须输出 `cn-patent-docx-assembly/v1` 报告。默认机器校验五分节、页眉序列、标题“要点”样式数量、原生公式对象数量、图片数量、DOCX ZIP 完整性及 Word 页数；
+- 脚本必须输出 `cn-patent-docx-assembly/v2` 报告。默认机器校验五分节、页眉序列、标题“要点”样式数量、原生公式对象数量、图片数量、DOCX ZIP 完整性及 Word 页数，并逐一绑定模板、四文书、全部嵌入图片和输出 DOCX 的 SHA-256；
 - **视觉检查默认关闭。** 不得仅因生成或修改了 Word 就导出 PDF、渲染 PNG、截图或逐页目视确认。只有用户明确要求检查 Word 版式、逐页截图或视觉效果时，才传入 `--visual-review`；此时再校验 Word 页数与 PNG 页数一致，并由操作者目视复核。未请求视觉检查不构成交付缺陷。
-- 未请求视觉检查时，报告写入 `render.requested=false`、`visual_review_completed=null` 和 `status=STRUCTURE_VERIFIED`；请求后写入 `render.requested=true`、`visual_review_completed=false`，待外部人工复核记录完成状态。
+- 未请求视觉检查时，报告写入 `render.requested=false`、`visual_review_completed=null` 和 `status=STRUCTURE_VERIFIED`；请求后写入 `render.requested=true`、`visual_review_completed=false`，待外部人工复核记录完成状态。组装后必须运行 `scripts/verify_docx_assembly.py` 复算当前输入和输出哈希；任一源文书或附图变化都使旧 DOCX 报告失效。
 
 本技能的最终交付目录固定只包含四类技术文书：
 

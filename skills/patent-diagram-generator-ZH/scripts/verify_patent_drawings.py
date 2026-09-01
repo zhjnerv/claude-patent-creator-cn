@@ -311,10 +311,20 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
     if errors:
         return {"schema_id": "cn-patent-drawing-verification/v2", "status": "FAIL", "errors": errors, "brief_validation": brief_report}
     brief = load_json(brief_path, "drawing-brief.json")
+    brief_schema = brief.get("schema_id")
+    output_schema = "cn-patent-drawing-verification/v3" if brief_schema == "cn-patent-drawing-brief/v3" else "cn-patent-drawing-verification/v2"
     drawio_skill = find_drawio_skill(drawio_skill_dir)
     visual_path = resolve_under(case_dir, brief["visual_review_path"], "visual_review_path")
     visual = load_json(visual_path, "visual-review.json")
-    if visual.get("schema_id") != "cn-patent-drawing-visual-review/v1":
+    visual_schema = visual.get("schema_id")
+    if brief_schema == "cn-patent-drawing-brief/v3":
+        if visual_schema != "cn-patent-drawing-visual-review/v2":
+            errors.append({"code": "DRAWING-VISUAL", "message": "v3 绘图合同必须使用 cn-patent-drawing-visual-review/v2"})
+        if visual.get("brief_sha256") != sha256(brief_path):
+            errors.append({"code": "DRAWING-VISUAL-STALE", "message": "视觉复核绑定的绘图合同已陈旧"})
+        if not isinstance(visual.get("review_method"), str) or not visual["review_method"].strip():
+            errors.append({"code": "DRAWING-VISUAL", "message": "visual-review.json 缺少实际查看方式 review_method"})
+    elif visual_schema not in {"cn-patent-drawing-visual-review/v1", "cn-patent-drawing-visual-review/v2"}:
         errors.append({"code": "DRAWING-VISUAL", "message": "visual-review.json schema_id 无效"})
     if not isinstance(visual.get("reviewer"), str) or not visual["reviewer"].strip():
         errors.append({"code": "DRAWING-VISUAL", "message": "visual-review.json 缺少复核者"})
@@ -379,6 +389,28 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
                     errors.append({"code": "DRAWING-VISUAL-STALE", "message": f"图{number} 视觉复核指向的不是当前最终 PNG"})
             if review.get("png_sha256") != sha256(paths["final_png"]):
                 errors.append({"code": "DRAWING-VISUAL-STALE", "message": f"图{number} 视觉复核绑定的 PNG 已陈旧"})
+            if brief_schema == "cn-patent-drawing-brief/v3":
+                try:
+                    reviewed_export = resolve_under(case_dir, review.get("export_report_path", ""), f"图{number} visual export_report_path")
+                except ValueError as exc:
+                    errors.append({"code": "DRAWING-VISUAL", "message": str(exc)})
+                else:
+                    if reviewed_export != paths["export_report"]:
+                        errors.append({"code": "DRAWING-VISUAL-STALE", "message": f"图{number} 视觉复核指向的不是当前导出报告"})
+                if review.get("export_report_sha256") != sha256(paths["export_report"]):
+                    errors.append({"code": "DRAWING-VISUAL-STALE", "message": f"图{number} 视觉复核绑定的导出报告已陈旧"})
+                inspection = review.get("inspection")
+                if not isinstance(inspection, dict):
+                    errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 缺少 inspection 观察记录"})
+                    inspection = {}
+                full_scale = inspection.get("full_scale_percent")
+                reduced_scale = inspection.get("reduced_scale_percent")
+                if not isinstance(full_scale, int) or isinstance(full_scale, bool) or full_scale < 100:
+                    errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 未记录至少 100% 比例检查"})
+                if not isinstance(reduced_scale, int) or isinstance(reduced_scale, bool) or not 20 <= reduced_scale <= 80:
+                    errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 未记录 20%—80% 缩小检查"})
+                if not isinstance(inspection.get("viewed_at"), str) or not inspection["viewed_at"].strip():
+                    errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 缺少实际查看时间"})
             required_checks = [
                 "text_legible", "no_text_overlap", "no_edge_crossing", "no_edge_through_node",
                 "no_arrow_ambiguity", "labels_adjacent", "no_unnecessary_detours",
@@ -391,6 +423,14 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
             for check in required_checks:
                 if checks.get(check) is not True:
                     errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 视觉检查未通过：{check}"})
+            if brief_schema == "cn-patent-drawing-brief/v3":
+                observations = (review.get("inspection") or {}).get("observations")
+                if not isinstance(observations, dict):
+                    errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 缺少逐项 observations"})
+                    observations = {}
+                for check in required_checks:
+                    if not isinstance(observations.get(check), str) or not observations[check].strip():
+                        errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 缺少视觉检查观察记录：{check}"})
             if bool(checks.get("monochrome")) == bool(checks.get("restrained_color")):
                 errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 黑白/克制彩色模式必须且只能确认一种"})
         figures.append({"figure_number": number, "drawio": drawio_report, "png": {"path": str(paths["final_png"]), **png}, "export_report": str(paths["export_report"]), "official_reexport": reproduced, "visual_review": review})
@@ -398,12 +438,16 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
     if sorted(visual_by_number) != expected_numbers:
         errors.append({"code": "DRAWING-VISUAL", "message": "visual-review.json 图号集合与绘图合同不一致"})
     return {
-        "schema_id": "cn-patent-drawing-verification/v2",
+        "schema_id": output_schema,
         "brief": str(brief_path),
         "brief_sha256": sha256(brief_path),
         "drawio_skill": str(drawio_skill),
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
+        "evidence_scope": {
+            "proves": ["绘图合同和来源哈希有效", "当前 Draw.io 母版可复算得到当前最终 PNG", "视觉复核记录绑定当前合同、导出报告和最终 PNG", "逐项视觉检查均有观察记录"],
+            "does_not_prove": ["图示技术方案具备新颖性或创造性", "说明书和权利要求的法律支持关系已经成立", "未由复核者实际观察到的视觉事实"],
+        },
         "brief_validation": brief_report,
         "figures": figures,
     }

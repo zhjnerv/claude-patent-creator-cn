@@ -53,7 +53,7 @@ except ImportError as exc:  # pragma: no cover - 项目依赖缺失路径
 EXPECTED_HEADERS = ["权利要求书", "说明书", "说明书附图", "说明书摘要", "摘要附图"]
 REQUIRED_PARAGRAPH_STYLES = ["Normal (Web)", "Title", "Heading 1", "正文2", "附图图号"]
 REQUIRED_CHARACTER_STYLE = "Strong"  # 中文 Word 界面显示为“要点”
-REPORT_SCHEMA = "cn-patent-docx-assembly/v1"
+REPORT_SCHEMA = "cn-patent-docx-assembly/v2"
 
 CJK_RE = re.compile(r"[\u3400-\u9fff]")
 DISPLAY_FORMULA_RE = re.compile(r"=")
@@ -703,6 +703,26 @@ def build_document(
             "template": str(template_path.resolve()),
             "template_sha256": file_sha256(template_path),
             "source_dir": str(source_dir.resolve()),
+            "artifacts": [
+                {"artifact_id": "claims", "path": str(claims_path.resolve()), "sha256": file_sha256(claims_path)},
+                {"artifact_id": "specification", "path": str(spec_path.resolve()), "sha256": file_sha256(spec_path)},
+                {"artifact_id": "abstract", "path": str(abstract_path.resolve()), "sha256": file_sha256(abstract_path)},
+                {"artifact_id": "figure_index", "path": str(figure_index_path.resolve()), "sha256": file_sha256(figure_index_path)},
+            ] + [
+                {"artifact_id": f"figure_{figure.number}", "path": str(figure.path.resolve()), "sha256": file_sha256(figure.path)}
+                for figure in figures
+            ],
+        },
+        "evidence_scope": {
+            "proves": [
+                "DOCX ZIP/XML、分节、页眉、样式、原生公式对象和嵌入图片数量满足本脚本合同",
+                "输出 DOCX 绑定当前模板、四文书源文件和每幅嵌入图片的 SHA-256",
+            ],
+            "does_not_prove": [
+                "申请文件的法律实体条件已经满足",
+                "未请求视觉检查时的逐页视觉效果",
+                "附图本身不存在视觉缺陷",
+            ],
         },
         "counts": {
             "claims": len(claims),

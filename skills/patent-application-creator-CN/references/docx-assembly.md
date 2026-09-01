@@ -139,9 +139,10 @@ python skills/patent-application-creator-CN/scripts/assemble_application_docx.py
 
 ## 机器验收
 
-脚本输出 `docx-assembly-report.json`，至少记录：
+脚本输出 `docx-assembly-report.json`（`cn-patent-docx-assembly/v2`），至少记录：
 
-- 模板、源目录和输出 DOCX 路径及哈希；
+- 模板和输出 DOCX 路径及哈希；
+- 权利要求书、说明书、摘要、附图索引和每幅实际嵌入图片的路径及 SHA-256；
 - 权利要求数、说明书内容项数；
 - 使用“要点”样式的说明书小标题数；
 - 原生 Word 公式对象数；
@@ -177,3 +178,15 @@ python skills/patent-application-creator-CN/scripts/assemble_application_docx.py
 - 所有公式是否显示为专业格式，特别是上下标、分式和幂；
 - 图1至图N及摘要附图是否完整、清晰、居中；
 - 是否存在文字裁切、对象重叠、孤立图号、异常空白页或字体替换。
+
+## 新鲜度复验
+
+组装完成后必须运行：
+
+```bash
+python skills/patent-application-creator-CN/scripts/verify_docx_assembly.py \
+  --report "<案件>/03-审查工作区/docx组装-*/docx-assembly-report.json" \
+  --output "<案件>/03-审查工作区/docx组装-*/docx-assembly-verification.json"
+```
+
+验证器只证明报告绑定的模板、四文书、嵌入图片和 DOCX 当前仍是同一字节版本；不证明法律实体条件或未执行的视觉检查。

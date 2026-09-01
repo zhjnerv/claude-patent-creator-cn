@@ -74,5 +74,5 @@ python scripts/export_patent_drawio.py \
 3. 查看预览，检查文字、线路、箭头和配色。
 4. 修改 `.drawio`，重复验证与预览；不得只修 PNG。
 5. 视觉通过后输出最终 PNG/SVG。
-6. 创建 `visual-review.json`，其 PNG SHA-256 必须对应最终导出图。
+6. 创建 `cn-patent-drawing-visual-review/v2` 的 `visual-review.json`，绑定当前 drawing brief、export report 和最终 PNG 的 SHA-256，并记录 100% 与缩小比例下的逐项观察。
 7. 运行 `verify_patent_drawings.py`，通过后才交回专利起草工作流。

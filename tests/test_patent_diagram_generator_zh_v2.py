@@ -340,7 +340,7 @@ def test_stability_contract_covers_all_hard_constraints():
 def test_skill_is_domain_adapter_for_drawio_skill():
     skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     for required in (
-        'version: "2.0.0"', "drawio-skill", "cn-patent-drawing-brief/v2",
+        'version: "3.0.0"', "drawio-skill", "cn-patent-drawing-brief/v3",
         "Draw.io Desktop CLI", "patent_restrained_color", "verify_patent_drawings.py",
     ):
         assert required in skill

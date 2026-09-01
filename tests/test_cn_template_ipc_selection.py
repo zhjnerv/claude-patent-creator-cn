@@ -187,7 +187,7 @@ def _gate_fixture(tmp_path: Path) -> tuple[Path, Path]:
         "specification": {"embodiments": {"organization": "single_flow"}}, "warnings": []
     })
     _write_json(ledger, {
-        "schema_id": "cn-patent-feature-ledger/v1",
+        "schema_id": "cn-patent-feature-ledger/v2",
         "features": [{"feature_id": "F001", "classification": "distinguishing"}],
     })
     _write_json(state, {

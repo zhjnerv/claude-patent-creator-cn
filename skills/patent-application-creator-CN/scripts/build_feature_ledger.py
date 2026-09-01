@@ -3,7 +3,7 @@
 
 问题背景：权利要求、说明书和附图各自持有一份技术事实副本，彼此只靠散文
 连接。范本学习、检索边界和起草三段各自记一套特征编号，谁也对不上谁。本
-脚本把全案技术特征收敛为唯一台账（cn-patent-feature-ledger/v1），并做四向
+脚本把全案技术特征收敛为唯一台账（v1 兼容、v2 为新案件默认），并做四向
 对账：
 
   台账 -> 权利要求   登记的落点在权利要求原文中确实存在
@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -29,7 +30,9 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_ID = "cn-patent-feature-ledger/v1"
-REPORT_SCHEMA_ID = "cn-patent-feature-ledger-report/v1"
+SCHEMA_ID_V2 = "cn-patent-feature-ledger/v2"
+SUPPORTED_SCHEMA_IDS = {SCHEMA_ID, SCHEMA_ID_V2}
+REPORT_SCHEMA_ID = "cn-patent-feature-ledger-report/v2"
 LEGAL_EFFECT = "ADVISORY_ONLY"
 
 EXIT_OK = 0
@@ -91,8 +94,8 @@ def load_ledger(path: Path) -> dict[str, Any]:
         raise LedgerError(f"区别特征表 JSON 解析失败：{exc}") from exc
     if not isinstance(data, dict):
         raise LedgerError("区别特征表必须是对象")
-    if data.get("schema_id") != SCHEMA_ID:
-        raise LedgerError(f"schema_id 必须是 {SCHEMA_ID}")
+    if data.get("schema_id") not in SUPPORTED_SCHEMA_IDS:
+        raise LedgerError(f"schema_id 必须是 {SCHEMA_ID} 或 {SCHEMA_ID_V2}")
     features = data.get("features")
     if not isinstance(features, list) or not features:
         raise LedgerError("features 必须是非空数组")
@@ -119,7 +122,98 @@ def load_ledger(path: Path) -> dict[str, Any]:
         for key in ("claim_sites", "drawing_sites"):
             if key in feature and not isinstance(feature[key], list):
                 raise LedgerError(f"特征 {fid} 的 {key} 必须是数组")
+
+    if data["schema_id"] == SCHEMA_ID_V2:
+        _validate_v2_shape(data)
     return data
+
+
+def _require_string_list(value: Any, label: str, *, allow_empty: bool = True) -> list[str]:
+    if not isinstance(value, list) or (not allow_empty and not value):
+        qualifier = "非空数组" if not allow_empty else "数组"
+        raise LedgerError(f"{label} 必须是{qualifier}")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise LedgerError(f"{label} 的每一项必须是非空字符串")
+    if len(set(value)) != len(value):
+        raise LedgerError(f"{label} 不得包含重复项")
+    return value
+
+
+def _validate_v2_shape(data: dict[str, Any]) -> None:
+    """校验 v2 的结构字段；跨对象引用由后续可报告检查处理。"""
+
+    phases = {"preconfigured", "runtime_input", "runtime_processing", "runtime_output", "postprocessing"}
+    for feature in data["features"]:
+        fid = feature["feature_id"]
+        flow = feature.get("flow")
+        if not isinstance(flow, dict):
+            raise LedgerError(f"特征 {fid} 缺少 flow 对象")
+        if flow.get("action_phase") not in phases:
+            raise LedgerError(f"特征 {fid} 的 flow.action_phase 非法")
+        for field in ("input_objects", "output_objects", "downstream_feature_ids", "exception_path_ids"):
+            _require_string_list(flow.get(field), f"特征 {fid} 的 flow.{field}")
+        for field in ("processing_actor", "action"):
+            if not isinstance(flow.get(field), str) or not flow[field].strip():
+                raise LedgerError(f"特征 {fid} 的 flow.{field} 必须是非空字符串")
+        for site in feature.get("claim_sites") or []:
+            if site.get("claim_type") not in {"method", "system", "device", "medium", "other"}:
+                raise LedgerError(f"特征 {fid} 的 claim_sites.claim_type 非法")
+            if site.get("execution_role") not in {"precondition", "runtime_step", "module", "result", "storage", "limitation"}:
+                raise LedgerError(f"特征 {fid} 的 claim_sites.execution_role 非法")
+            if site.get("execution_role") == "module" and not str(site.get("actor", "")).strip():
+                raise LedgerError(f"特征 {fid} 的系统模块落点必须填写 actor")
+
+    flows = data.get("claim_data_flows")
+    if not isinstance(flows, list) or not flows:
+        raise LedgerError("v2 claim_data_flows 必须是非空数组")
+    for index, flow in enumerate(flows, start=1):
+        if not isinstance(flow, dict):
+            raise LedgerError(f"第 {index} 个 claim_data_flow 必须是对象")
+        if not isinstance(flow.get("claim_number"), int) or isinstance(flow.get("claim_number"), bool):
+            raise LedgerError(f"第 {index} 个 claim_data_flow.claim_number 必须是整数")
+        if flow.get("claim_type") not in {"method", "system", "device", "medium", "other"}:
+            raise LedgerError(f"第 {index} 个 claim_data_flow.claim_type 非法")
+        for field in ("entry_feature_ids", "ordered_feature_ids", "normal_exit_feature_ids"):
+            _require_string_list(flow.get(field), f"claim{flow.get('claim_number')} 的 {field}", allow_empty=False)
+        for field in ("merge_feature_ids", "exception_path_ids", "storage_feature_ids"):
+            _require_string_list(flow.get(field), f"claim{flow.get('claim_number')} 的 {field}")
+
+    pairs = data.get("method_system_pairs")
+    if not isinstance(pairs, list):
+        raise LedgerError("v2 method_system_pairs 必须是数组")
+    for index, pair in enumerate(pairs, start=1):
+        if not isinstance(pair, dict):
+            raise LedgerError(f"第 {index} 个 method_system_pair 必须是对象")
+        for field in ("method_claim_number", "system_claim_number"):
+            if not isinstance(pair.get(field), int) or isinstance(pair.get(field), bool):
+                raise LedgerError(f"第 {index} 个 method_system_pair.{field} 必须是整数")
+        _require_string_list(pair.get("required_feature_ids"), f"第 {index} 个 method_system_pair.required_feature_ids", allow_empty=False)
+
+    paths = data.get("exception_paths")
+    if not isinstance(paths, list):
+        raise LedgerError("v2 exception_paths 必须是数组")
+    seen_paths: set[str] = set()
+    for index, path in enumerate(paths, start=1):
+        if not isinstance(path, dict):
+            raise LedgerError(f"第 {index} 个 exception_path 必须是对象")
+        path_id = path.get("path_id")
+        if not isinstance(path_id, str) or not re.fullmatch(r"E\d{3}", path_id) or path_id in seen_paths:
+            raise LedgerError(f"第 {index} 个 exception_path.path_id 必须形如 E001 且唯一")
+        seen_paths.add(path_id)
+        for field in ("trigger", "terminal_state", "reason_code"):
+            if not isinstance(path.get(field), str) or not path[field].strip():
+                raise LedgerError(f"异常路径 {path_id} 的 {field} 必须是非空字符串")
+        _require_string_list(path.get("action_feature_ids"), f"异常路径 {path_id} 的 action_feature_ids", allow_empty=False)
+        _require_string_list(path.get("stored_fields"), f"异常路径 {path_id} 的 stored_fields", allow_empty=False)
+        _require_string_list(path.get("drawing_relation_ids"), f"异常路径 {path_id} 的 drawing_relation_ids")
+        if not isinstance(path.get("produces_value"), bool):
+            raise LedgerError(f"异常路径 {path_id} 的 produces_value 必须是布尔值")
+        if path.get("confidence") not in {"not_applicable", "high", "medium", "low", "unknown"}:
+            raise LedgerError(f"异常路径 {path_id} 的 confidence 非法")
+        if not isinstance(path.get("claim_sites"), list) or not path["claim_sites"]:
+            raise LedgerError(f"异常路径 {path_id} 必须登记 claim_sites")
+        if not isinstance(path.get("spec_sites"), list) or not path["spec_sites"]:
+            raise LedgerError(f"异常路径 {path_id} 必须登记 spec_sites")
 
 
 def parse_claims(text: str) -> dict[int, str]:
@@ -459,6 +553,262 @@ def check_drawings(ledger: dict[str, Any], spec_text: str, report: Report) -> No
             )
 
 
+
+def check_v2_relations(
+    ledger: dict[str, Any],
+    claims: dict[int, str],
+    spec_text: str,
+    report: Report,
+    drawing_brief: dict[str, Any] | None = None,
+) -> None:
+    """复算 v2 台账中的数据流、方法—系统映射和异常终态。"""
+
+    if ledger.get("schema_id") != SCHEMA_ID_V2:
+        report.review(
+            "CN-LEDGER-V2-000",
+            "ledger",
+            "当前为 v1 台账，未执行数据流、动作阶段、方法—系统和异常闭合复算",
+            "新案件升级为 cn-patent-feature-ledger/v2；v1 仅用于旧案件回放",
+        )
+        return
+
+    feature_by_id = {item["feature_id"]: item for item in ledger["features"]}
+    phase_order = {
+        "preconfigured": 0,
+        "runtime_input": 1,
+        "runtime_processing": 2,
+        "runtime_output": 3,
+        "postprocessing": 4,
+    }
+    path_by_id = {item["path_id"]: item for item in ledger["exception_paths"]}
+    normalized_claims = {number: normalize(text) for number, text in claims.items()}
+    sections = {name: normalize(body) for name, body in split_sections(spec_text).items()}
+
+    for fid, feature in feature_by_id.items():
+        flow = feature["flow"]
+        for target in flow["downstream_feature_ids"]:
+            if target not in feature_by_id:
+                report.fail(
+                    "CN-LEDGER-FLOW-001", fid,
+                    f"特征 {fid} 的下游特征 {target} 未登记",
+                    "补登下游特征或删除无效引用",
+                )
+            elif target == fid:
+                report.fail(
+                    "CN-LEDGER-FLOW-002", fid,
+                    f"特征 {fid} 把自身登记为下游，数据流形成无意义自环",
+                    "登记实际下游特征；循环算法应通过状态或迭代条件单独描述",
+                )
+        for path_id in flow["exception_path_ids"]:
+            if path_id not in path_by_id:
+                report.fail(
+                    "CN-LEDGER-EXCEPTION-001", fid,
+                    f"特征 {fid} 引用的异常路径 {path_id} 未登记",
+                    "在 exception_paths 中补齐该路径",
+                )
+        for site in feature.get("claim_sites") or []:
+            role = site.get("execution_role")
+            phase = flow["action_phase"]
+            if phase == "preconfigured" and role == "runtime_step":
+                report.fail(
+                    "CN-LEDGER-PHASE-001", f"{fid}@claim{site.get('claim_number')}",
+                    f"预配置特征 {fid} 被登记为运行时步骤",
+                    "将权利要求表述改为预先配置/预先建立，或修正真实动作阶段",
+                )
+            if phase != "preconfigured" and role == "precondition":
+                report.fail(
+                    "CN-LEDGER-PHASE-002", f"{fid}@claim{site.get('claim_number')}",
+                    f"运行阶段特征 {fid} 被登记为预置条件",
+                    "按真实执行时序区分预配置行为与运行时处理行为",
+                )
+
+    flow_by_claim: dict[int, dict[str, Any]] = {}
+    linked_exception_ids: set[str] = set()
+    for flow in ledger["claim_data_flows"]:
+        number = flow["claim_number"]
+        if number in flow_by_claim:
+            report.fail(
+                "CN-LEDGER-FLOW-003", f"claim{number}",
+                f"权利要求 {number} 重复登记 claim_data_flow",
+                "每项独立权利要求只保留一条数据流登记",
+            )
+        flow_by_claim[number] = flow
+        if number not in claims:
+            report.fail(
+                "CN-LEDGER-FLOW-004", f"claim{number}",
+                f"claim_data_flow 指向不存在的权利要求 {number}",
+                "修正项号或补写对应独立权利要求",
+            )
+        ordered = flow["ordered_feature_ids"]
+        for field in ("entry_feature_ids", "ordered_feature_ids", "merge_feature_ids", "normal_exit_feature_ids", "storage_feature_ids"):
+            for fid in flow[field]:
+                if fid not in feature_by_id:
+                    report.fail(
+                        "CN-LEDGER-FLOW-005", f"claim{number}",
+                        f"{field} 引用未登记特征 {fid}",
+                        "补登特征或修正数据流引用",
+                    )
+                elif not any(site.get("claim_number") == number for site in feature_by_id[fid].get("claim_sites") or []):
+                    report.fail(
+                        "CN-LEDGER-FLOW-006", f"{fid}@claim{number}",
+                        f"数据流包含特征 {fid}，但该特征没有权利要求 {number} 落点",
+                        "补登 claim_sites 并填写可逐字核对的 verbatim",
+                    )
+        for fid in flow["entry_feature_ids"] + flow["normal_exit_feature_ids"] + flow["merge_feature_ids"] + flow["storage_feature_ids"]:
+            if fid not in ordered:
+                report.fail(
+                    "CN-LEDGER-FLOW-007", f"{fid}@claim{number}",
+                    f"特征 {fid} 被登记为入口/汇合/出口/存储点，但不在 ordered_feature_ids 中",
+                    "把该特征纳入独立权利要求的数据流顺序链",
+                )
+        phases = [phase_order[feature_by_id[fid]["flow"]["action_phase"]] for fid in ordered if fid in feature_by_id]
+        if any(current > following for current, following in zip(phases, phases[1:])):
+            report.fail(
+                "CN-LEDGER-PHASE-003", f"claim{number}",
+                "独立权利要求的数据流动作阶段发生倒退",
+                "按预配置→运行时输入→运行时处理→运行时输出→后处理重新排列",
+            )
+        position = {fid: index for index, fid in enumerate(ordered)}
+        for fid in ordered:
+            if fid not in feature_by_id:
+                continue
+            for target in feature_by_id[fid]["flow"]["downstream_feature_ids"]:
+                if target in position and position[target] <= position[fid]:
+                    report.fail(
+                        "CN-LEDGER-FLOW-008", f"{fid}->{target}@claim{number}",
+                        "台账下游关系与独立权利要求数据流顺序冲突",
+                        "修正 downstream_feature_ids 或 ordered_feature_ids",
+                    )
+        for path_id in flow["exception_path_ids"]:
+            linked_exception_ids.add(path_id)
+            if path_id not in path_by_id:
+                report.fail(
+                    "CN-LEDGER-EXCEPTION-002", f"claim{number}",
+                    f"独立权利要求引用未登记异常路径 {path_id}",
+                    "补齐 exception_paths",
+                )
+
+    for pair in ledger["method_system_pairs"]:
+        method_number = pair["method_claim_number"]
+        system_number = pair["system_claim_number"]
+        method_flow = flow_by_claim.get(method_number)
+        system_flow = flow_by_claim.get(system_number)
+        if not method_flow or method_flow.get("claim_type") != "method":
+            report.fail(
+                "CN-LEDGER-PAIR-001", f"claim{method_number}",
+                "方法—系统对照缺少方法独权数据流",
+                "为方法独权登记 claim_type=method 的 claim_data_flow",
+            )
+        if not system_flow or system_flow.get("claim_type") not in {"system", "device"}:
+            report.fail(
+                "CN-LEDGER-PAIR-002", f"claim{system_number}",
+                "方法—系统对照缺少系统/装置独权数据流",
+                "为系统独权登记 claim_type=system/device 的 claim_data_flow",
+            )
+        for fid in pair["required_feature_ids"]:
+            feature = feature_by_id.get(fid)
+            if feature is None:
+                report.fail(
+                    "CN-LEDGER-PAIR-003", fid,
+                    f"方法—系统必要特征 {fid} 未登记",
+                    "补登该技术特征",
+                )
+                continue
+            method_sites = [s for s in feature.get("claim_sites") or [] if s.get("claim_number") == method_number]
+            system_sites = [s for s in feature.get("claim_sites") or [] if s.get("claim_number") == system_number]
+            if not method_sites:
+                report.fail(
+                    "CN-LEDGER-PAIR-004", f"{fid}@claim{method_number}",
+                    f"必要特征 {fid} 未落入方法独权 {method_number}",
+                    "补入方法步骤或从 required_feature_ids 移除并说明理由",
+                )
+            if not system_sites:
+                report.fail(
+                    "CN-LEDGER-PAIR-005", f"{fid}@claim{system_number}",
+                    f"必要特征 {fid} 未落入系统独权 {system_number}",
+                    "补入对应处理模块，不能只做名称平行转换",
+                )
+            elif not any(str(site.get("actor", "")).strip() for site in system_sites):
+                report.fail(
+                    "CN-LEDGER-PAIR-006", f"{fid}@claim{system_number}",
+                    f"系统独权中的必要特征 {fid} 未登记具体处理主体",
+                    "填写实施该功能的子模块/模块 actor",
+                )
+
+    for path_id, path in path_by_id.items():
+        for fid in path["action_feature_ids"]:
+            if fid not in feature_by_id:
+                report.fail(
+                    "CN-LEDGER-EXCEPTION-003", path_id,
+                    f"异常路径 {path_id} 引用未登记动作特征 {fid}",
+                    "补登特征或修正 action_feature_ids",
+                )
+        if path["produces_value"] and path["confidence"] not in {"high", "medium", "low"}:
+            report.fail(
+                "CN-LEDGER-EXCEPTION-004", path_id,
+                f"异常路径 {path_id} 生成结果值却未给出确定置信度等级",
+                "明确 high/medium/low 之一；低置信度退守不得只写待复核标识",
+            )
+        if not path["produces_value"] and path["confidence"] != "not_applicable":
+            report.fail(
+                "CN-LEDGER-EXCEPTION-005", path_id,
+                f"异常路径 {path_id} 不生成结果值，confidence 应为 not_applicable",
+                "修正 produces_value 或 confidence",
+            )
+        for site in path["claim_sites"]:
+            number, anchor = site.get("claim_number"), site.get("anchor", "")
+            if number not in normalized_claims or normalize(anchor) not in normalized_claims[number]:
+                report.fail(
+                    "CN-LEDGER-EXCEPTION-006", f"{path_id}@claim{number}",
+                    f"异常路径 {path_id} 的权利要求锚点无法定位",
+                    "按权利要求实际文字更新 anchor，确保终态和原因码相关限定可核对",
+                )
+        for index, site in enumerate(path["spec_sites"], start=1):
+            section, anchor = site.get("section"), site.get("anchor", "")
+            if section not in sections or normalize(anchor) not in sections[section]:
+                report.fail(
+                    "CN-LEDGER-EXCEPTION-007", f"{path_id}#{index}",
+                    f"异常路径 {path_id} 的说明书锚点无法定位",
+                    "在说明书中完整写明触发、动作、结果、置信度、终态、原因码和存储字段",
+                )
+        if path_id not in linked_exception_ids:
+            report.fail(
+                "CN-LEDGER-EXCEPTION-008", path_id,
+                f"异常路径 {path_id} 未被任何独立权利要求数据流引用",
+                "把该路径关联到对应 claim_data_flow，或删除无效登记",
+            )
+
+    if drawing_brief is not None:
+        element_ids: set[str] = set()
+        relation_ids: set[str] = set()
+        for figure in drawing_brief.get("figures") or []:
+            element_ids.update(item.get("id") for item in figure.get("elements") or [] if isinstance(item.get("id"), str))
+            relation_ids.update(item.get("id") for item in figure.get("relations") or [] if isinstance(item.get("id"), str))
+        for fid, feature in feature_by_id.items():
+            for site in feature.get("drawing_sites") or []:
+                element_id = site.get("element_id")
+                if element_id and element_id not in element_ids:
+                    report.fail(
+                        "CN-LEDGER-DRAWING-001", f"{fid}:{element_id}",
+                        f"台账声明的附图元素 {element_id} 不在当前绘图合同中",
+                        "同步 drawing brief 或修正 drawing_sites.element_id",
+                    )
+                for relation_id in site.get("relation_ids") or []:
+                    if relation_id not in relation_ids:
+                        report.fail(
+                            "CN-LEDGER-DRAWING-002", f"{fid}:{relation_id}",
+                            f"台账声明的附图关系 {relation_id} 不在当前绘图合同中",
+                            "同步 drawing brief 或修正 drawing_sites.relation_ids",
+                        )
+        for path_id, path in path_by_id.items():
+            for relation_id in path["drawing_relation_ids"]:
+                if relation_id not in relation_ids:
+                    report.fail(
+                        "CN-LEDGER-DRAWING-003", f"{path_id}:{relation_id}",
+                        f"异常路径 {path_id} 的附图关系 {relation_id} 不在当前绘图合同中",
+                        "在对应附图中闭合该异常分支，或修正关系 ID",
+                    )
+
 def render_table(ledger: dict[str, Any]) -> str:
     """渲染人类可读的区别特征表。"""
 
@@ -577,6 +927,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--specification", required=True, help="说明书 UTF-8 文本路径")
     parser.add_argument("--output", required=True, help="对账报告 JSON 输出路径")
     parser.add_argument("--table", help="区别特征表 Markdown 输出路径")
+    parser.add_argument("--drawing-brief", help="可选：drawing-brief.json，用于核对元素和关系 ID")
     return parser
 
 
@@ -587,7 +938,13 @@ def main(argv: list[str] | None = None) -> int:
         claims_text = read_text(Path(args.claims), "权利要求书")
         spec_text = read_text(Path(args.specification), "说明书")
         claims = parse_claims(claims_text)
-    except LedgerError as exc:
+        drawing_brief = None
+        if args.drawing_brief:
+            drawing_brief_text = read_text(Path(args.drawing_brief), "绘图合同")
+            drawing_brief = json.loads(drawing_brief_text)
+            if not isinstance(drawing_brief, dict):
+                raise LedgerError("绘图合同顶层必须是对象")
+    except (LedgerError, json.JSONDecodeError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return EXIT_INPUT_ERROR
 
@@ -600,6 +957,7 @@ def main(argv: list[str] | None = None) -> int:
     check_claims(ledger, claims, report)
     check_specification(ledger, spec_text, report)
     check_drawings(ledger, spec_text, report)
+    check_v2_relations(ledger, claims, spec_text, report, drawing_brief)
 
     fails = [f for f in report.findings if f["status"] == "DETERMINISTIC_FAIL"]
     reviews = [f for f in report.findings if f["status"] == "REVIEW_REQUIRED"]
@@ -607,6 +965,25 @@ def main(argv: list[str] | None = None) -> int:
         "schema_id": REPORT_SCHEMA_ID,
         "legal_effect": LEGAL_EFFECT,
         "case_id": ledger["case_id"],
+        "input_artifacts": [
+            {"artifact_id": "feature_ledger", "path": str(Path(args.ledger).resolve()), "sha256": hashlib.sha256(Path(args.ledger).read_bytes()).hexdigest()},
+            {"artifact_id": "claims", "path": str(Path(args.claims).resolve()), "sha256": hashlib.sha256(Path(args.claims).read_bytes()).hexdigest()},
+            {"artifact_id": "specification", "path": str(Path(args.specification).resolve()), "sha256": hashlib.sha256(Path(args.specification).read_bytes()).hexdigest()},
+        ] + ([{"artifact_id": "drawing_brief", "path": str(Path(args.drawing_brief).resolve()), "sha256": hashlib.sha256(Path(args.drawing_brief).read_bytes()).hexdigest()}] if args.drawing_brief else []),
+        "evidence_scope": {
+            "proves": [
+                "台账字段和跨对象引用满足确定性合同",
+                "登记的权利要求与说明书锚点可在当前输入中定位",
+                "v2 数据流、动作阶段、方法—系统覆盖和异常出口通过结构复算",
+                "提供绘图合同时，台账登记的图元素和关系 ID 存在",
+            ],
+            "does_not_prove": [
+                "权利要求必然清楚或得到说明书支持",
+                "某项特征必然属于必要技术特征",
+                "申请具备新颖性、创造性或授权前景",
+                "附图视觉质量已经通过人工复核",
+            ],
+        },
         "counts": {
             "features": len(ledger["features"]),
             "claims": len(claims),
@@ -615,7 +992,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "boundary": (
             "文本命中不等于得到支持，未命中也不等于缺乏支持。零 DETERMINISTIC_FAIL "
-            "只表示四向登记可对账，不代表清楚、支持、必要技术特征或创造性成立。"
+            "只表示登记、数据流和引用关系在当前输入范围内可对账，不代表清楚、支持、必要技术特征或创造性成立。"
         ),
         "findings": report.findings,
     }

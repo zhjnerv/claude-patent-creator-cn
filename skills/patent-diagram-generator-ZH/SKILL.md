@@ -1,11 +1,11 @@
 ---
 name: patent-diagram-generator-ZH
-version: "2.0.0"
-description: 中国专利说明书附图的领域适配与验收 Skill。应在从权利要求书、说明书和区别特征台账生成或修改中国发明/实用新型附图时使用：先冻结图号、技术元素、部件标记、步骤号和关系，形成 cn-patent-drawing-brief/v2，再调用 drawio-skill 完成专业布局、原生 .drawio 制作、Draw.io Desktop CLI 导出和视觉迭代，最后执行专利图文一致性与候选绑定验收。不要用于一般商业图表，也不要在本 Skill 内另造一套 Draw.io 布局或 PNG 渲染器。
+version: "3.0.0"
+description: 中国专利说明书附图的领域适配与验收 Skill。应在从权利要求书、说明书和区别特征台账生成或修改中国发明/实用新型附图时使用：先冻结图号、技术元素、部件标记、步骤号和关系，形成 cn-patent-drawing-brief/v3，再调用 drawio-skill 完成专业布局、原生 .drawio 制作、Draw.io Desktop CLI 导出和视觉迭代，最后执行专利图文一致性与候选绑定验收。不要用于一般商业图表，也不要在本 Skill 内另造一套 Draw.io 布局或 PNG 渲染器。
 allowed-tools: Bash, Read, Write
 ---
 
-# 中国专利附图适配器 v2
+# 中国专利附图适配器 v3
 
 本 Skill 负责**画什么、不能画错什么、如何验收**；`drawio-skill` 负责**怎样用 Draw.io 把图画好**。
 
@@ -31,16 +31,17 @@ allowed-tools: Bash, Read, Write
 
 ## 输入合同
 
-专利起草端先生成 `cn-patent-drawing-brief/v2`，schema：
+专利起草端先生成 `cn-patent-drawing-brief/v3`，schema：
 
-`references/patent-drawing-brief-schema.json`
+`references/patent-drawing-brief-schema-v3.json`；v2 仅用于旧案件回放
 
 最少绑定：
 
 - 当前权利要求书、说明书、`feature-ledger.json` 的路径与 SHA-256；
-- 每幅图的图号、名称、图型、方向和表达目的；
+- 每幅图的图号、名称、图型、唯一 `primary_question`、阅读方向、层级和复杂度预算；
 - 每个技术元素的稳定 ID、规范名称、部件标记或步骤号、来源锚点；
-- 每条关系的 source、target、类型、优选方向和是否必须直连；
+- 每条关系的 source、target、类型、优选方向、独立 `route_channel` 和是否必须直连；
+- 正常/异常出口，以及说明书声称该图表达的元素 ID、关系 ID 和原文锚点；
 - `.drawio`、预览图、最终 PNG/SVG、导出报告的目标路径；
 - 配色策略和视觉复核文件路径。
 
@@ -140,9 +141,9 @@ python scripts/export_patent_drawio.py \
 - 图号未进入画布；
 - 整体观感符合正式专利附图，而非产品宣传图。
 
-结果写为 `cn-patent-drawing-visual-review/v1`，schema：
+结果写为 `cn-patent-drawing-visual-review/v2`，schema：
 
-`references/visual-review-schema.json`
+`references/visual-review-schema-v2.json`。记录必须绑定当前 drawing brief、当前 export report 和最终 PNG 的 SHA-256，并填写 100% 比例、缩小比例及每个检查项的具体观察文本
 
 示例：`assets/visual-review.example.json`。
 
@@ -163,7 +164,9 @@ python scripts/verify_patent_drawings.py \
 - 图型配色、渐变和阴影；
 - drawio-skill `validate.py --strict`；
 - Draw.io Desktop CLI 导出证据；
-- PNG DPI、导出哈希和视觉复核新鲜度。
+- PNG DPI、导出哈希和视觉复核新鲜度；
+- v3 合同的唯一问题、阅读层级、复杂度预算、独立线路通道、正常/异常出口和图文表达范围；
+- v2 视觉记录的合同/导出/PNG 三重绑定、检查比例和逐项观察。
 
 退出码非零或报告 `status != PASS` 时，不得把附图交回专利起草流程。
 

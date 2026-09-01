@@ -1,5 +1,5 @@
 {
-  "schema_id": "cn-patent-drawing-brief/v2",
+  "schema_id": "cn-patent-drawing-brief/v3",
   "case_id": "示例案件",
   "generated_at": "2026-08-28",
   "source_artifacts": [
@@ -48,7 +48,10 @@
         "#666666"
       ],
       "palette_asset": "assets/patent-restrained-color.json"
-    }
+    },
+    "single_primary_question_required": true,
+    "independent_route_channels_required": true,
+    "final_png_visual_review_required": true
   },
   "visual_review_path": "visual-review.json",
   "figures": [
@@ -71,21 +74,33 @@
           "label": "开始",
           "kind": "start_end",
           "reference_sign": "S100",
-          "source_anchor": "开始处理"
+          "source_anchor": "开始处理",
+          "layer_id": "L1",
+          "source_feature_ids": [
+            "F001"
+          ]
         },
         {
           "id": "S110",
           "label": "条件满足？",
           "kind": "decision",
           "reference_sign": "S110",
-          "source_anchor": "条件校验"
+          "source_anchor": "条件校验",
+          "layer_id": "L2",
+          "source_feature_ids": [
+            "F001"
+          ]
         },
         {
           "id": "S120",
           "label": "执行处理",
           "kind": "step",
           "reference_sign": "S120",
-          "source_anchor": "执行处理"
+          "source_anchor": "执行处理",
+          "layer_id": "L3",
+          "source_feature_ids": [
+            "F001"
+          ]
         }
       ],
       "relations": [
@@ -96,7 +111,11 @@
           "kind": "control",
           "preferred_direction": "vertical",
           "direct_connection_required": true,
-          "source_anchor": "条件校验"
+          "source_anchor": "条件校验",
+          "route_channel": "C1",
+          "source_feature_ids": [
+            "F001"
+          ]
         },
         {
           "id": "R2",
@@ -106,7 +125,11 @@
           "kind": "control",
           "preferred_direction": "vertical",
           "direct_connection_required": true,
-          "source_anchor": "条件满足时"
+          "source_anchor": "条件满足时",
+          "route_channel": "C2",
+          "source_feature_ids": [
+            "F001"
+          ]
         }
       ],
       "outputs": {
@@ -116,7 +139,48 @@
         "export_report": "export/图1-export.json",
         "drawio_lint_report": "lint/图1.json"
       },
-      "style_profile": "patent_restrained_color"
+      "style_profile": "patent_restrained_color",
+      "primary_question": "输入条件满足时如何进入处理步骤？",
+      "reading_direction": "top_to_bottom",
+      "layers": [
+        {
+          "id": "L1",
+          "title": "入口",
+          "order": 1
+        },
+        {
+          "id": "L2",
+          "title": "判断",
+          "order": 2
+        },
+        {
+          "id": "L3",
+          "title": "处理",
+          "order": 3
+        }
+      ],
+      "complexity_budget": {
+        "max_technical_elements": 6,
+        "max_relations": 6,
+        "max_decisions": 2
+      },
+      "normal_exit_ids": [
+        "S120"
+      ],
+      "exception_exit_ids": [],
+      "spec_assertions": [
+        {
+          "anchor": "条件满足时",
+          "element_ids": [
+            "S110",
+            "S120"
+          ],
+          "relation_ids": [
+            "R1",
+            "R2"
+          ]
+        }
+      ]
     }
   ],
   "production_skill": "drawio-skill"
