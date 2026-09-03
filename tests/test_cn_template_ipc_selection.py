@@ -248,6 +248,7 @@ def test_new_ipc_contract_schemas_are_utf8_json():
         "template-candidates-schema.json": "cn-patent-template-candidates/v1",
         "template-selection-schema.json": "cn-patent-template-selection/v1",
         "stage2-gate-schema-v2.json": "cn-patent-stage2-gate/v2",
+        "claim-architecture-schema-v1.json": "cn-patent-claim-architecture/v1",
     }
     for name, schema_id in expectations.items():
         raw = (references / name).read_bytes()

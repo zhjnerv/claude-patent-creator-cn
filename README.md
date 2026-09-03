@@ -33,7 +33,7 @@
 完整申请的阶段链为：
 
 ```text
-检索与范本 → 起草与关系台账 → 数据流复算 → 绘图合同 → 附图视觉验收 → 审查 → DOCX新鲜度复验
+检索与范本 → 起草与关系台账 → 数据流复算 → 权利要求架构门 → drawing brief v4 → 附图视觉验收 → 审查 → DOCX新鲜度复验
 ```
 
 总入口不得一次性读取全部法源和全部 Skill。每个阶段只读取：
@@ -76,4 +76,4 @@ python3 -m pytest -q
 
 ## 生成质量门
 
-新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-drawing-brief/v3` 和 `cn-patent-drawing-visual-review/v2`。这些合同分别控制权利要求数据流与异常闭合、单图阅读语法与图文表达范围、最终 PNG 的实际视觉观察。DOCX 组装后使用 `verify_docx_assembly.py` 复算源文件、图片和输出哈希。旧版本仅用于历史案件回放。
+新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-claim-architecture/v1`、`cn-patent-drawing-brief/v4` 和 `cn-patent-drawing-visual-review/v2`。这些合同分别控制数据流与异常闭合、独权载体分工/父从权继承拓扑/方法步骤边界、流程图步骤同构与图文表达范围、最终 PNG 的实际视觉观察。DOCX 组装后使用 `verify_docx_assembly.py` 复算源文件、图片和输出哈希。旧版本仅用于历史案件回放。

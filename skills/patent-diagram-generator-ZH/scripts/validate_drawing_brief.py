@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import re
 import sys
@@ -12,7 +13,8 @@ from typing import Any
 
 SCHEMA_ID = "cn-patent-drawing-brief/v2"
 SCHEMA_ID_V3 = "cn-patent-drawing-brief/v3"
-SUPPORTED_SCHEMA_IDS = {SCHEMA_ID, SCHEMA_ID_V3}
+SCHEMA_ID_V4 = "cn-patent-drawing-brief/v4"
+SUPPORTED_SCHEMA_IDS = {SCHEMA_ID, SCHEMA_ID_V3, SCHEMA_ID_V4}
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 COMPONENT_RE = re.compile(r"^[0-9]+$")
@@ -43,6 +45,13 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def compact_text(value: str) -> str:
+    text = html.unescape(value or "")
+    text = re.sub(r"<br\s*/?>", "", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    return re.sub(r"[\s，,；;。:：]", "", text)
+
+
 def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
     brief = load_json(brief_path)
     errors: list[dict[str, str]] = []
@@ -56,9 +65,11 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
 
     schema_id = brief.get("schema_id")
     if schema_id not in SUPPORTED_SCHEMA_IDS:
-        error("BRIEF-SCHEMA", f"schema_id 必须为 {SCHEMA_ID} 或 {SCHEMA_ID_V3}")
+        error("BRIEF-SCHEMA", f"schema_id 必须为 {SCHEMA_ID}、{SCHEMA_ID_V3} 或 {SCHEMA_ID_V4}")
     elif schema_id == SCHEMA_ID:
-        warning("BRIEF-LEGACY", "v2 未冻结阅读层级、复杂度预算、正文图示声明和独立线路通道；新案件必须使用 v3")
+        warning("BRIEF-LEGACY", "v2 未冻结阅读层级、复杂度预算、正文图示声明和独立线路通道；仅用于历史案件回放")
+    elif schema_id == SCHEMA_ID_V3:
+        warning("BRIEF-LEGACY", "v3 未绑定权利要求架构合同和方法步骤同构；新案件必须使用 v4")
     if brief.get("production_skill") != "drawio-skill":
         error("BRIEF-PRODUCER", "production_skill 必须为 drawio-skill")
 
@@ -70,11 +81,16 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
         "official_drawio_export_required": True,
         "visual_review_required": True,
     }
-    if schema_id == SCHEMA_ID_V3:
+    if schema_id in {SCHEMA_ID_V3, SCHEMA_ID_V4}:
         expected_constraints.update({
             "single_primary_question_required": True,
             "independent_route_channels_required": True,
             "final_png_visual_review_required": True,
+        })
+    if schema_id == SCHEMA_ID_V4:
+        expected_constraints.update({
+            "method_step_isomorphism_required": True,
+            "source_text_binding_required": True,
         })
     if not isinstance(constraints, dict):
         error("BRIEF-CONSTRAINTS", "缺少 global_constraints 对象")
@@ -143,6 +159,21 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
     for required in ("claims", "specification", "feature_ledger"):
         if required not in source_ids:
             error("BRIEF-SOURCES", f"缺少必需来源：{required}")
+    architecture_methods: dict[int, dict[str, Any]] = {}
+    if schema_id == SCHEMA_ID_V4:
+        if "claim_architecture" not in source_ids:
+            error("BRIEF-SOURCES", "v4缺少必需来源：claim_architecture")
+        else:
+            try:
+                architecture = json.loads(source_text_by_id.get("claim_architecture", ""))
+                if not isinstance(architecture, dict) or architecture.get("schema_id") != "cn-patent-claim-architecture/v1":
+                    error("BRIEF-ARCHITECTURE", "claim_architecture必须使用cn-patent-claim-architecture/v1")
+                else:
+                    for method in architecture.get("method_claims") or []:
+                        if isinstance(method, dict) and isinstance(method.get("claim_number"), int):
+                            architecture_methods[method["claim_number"]] = method
+            except json.JSONDecodeError:
+                error("BRIEF-ARCHITECTURE", "claim_architecture不是有效JSON")
     source_corpus = "\n".join(source_texts)
 
     output_root_raw = brief.get("output_root")
@@ -189,7 +220,7 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
             error("BRIEF-COLOR", f"图{number} style_profile 必须为 {expected_profile}")
 
         layer_ids: set[str] = set()
-        if schema_id == SCHEMA_ID_V3:
+        if schema_id in {SCHEMA_ID_V3, SCHEMA_ID_V4}:
             primary_question = figure.get("primary_question")
             if not isinstance(primary_question, str) or not primary_question.strip():
                 error("BRIEF-PRIMARY-QUESTION", f"图{number} 缺少唯一 primary_question")
@@ -223,6 +254,7 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
             error("BRIEF-ELEMENTS", f"图{number} elements 必须是非空数组")
             elements = []
         element_ids: set[str] = set()
+        element_by_id: dict[str, dict[str, Any]] = {}
         component_marks: set[str] = set()
         step_marks: set[str] = set()
         for item in elements:
@@ -234,7 +266,8 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
                 error("BRIEF-ELEMENTS", f"图{number} 元素 ID 缺失、非法或重复：{eid}")
                 continue
             element_ids.add(eid)
-            if schema_id == SCHEMA_ID_V3 and item.get("layer_id") not in layer_ids:
+            element_by_id[eid] = item
+            if schema_id in {SCHEMA_ID_V3, SCHEMA_ID_V4} and item.get("layer_id") not in layer_ids:
                 error("BRIEF-LAYERS", f"图{number} 元素 {eid} 引用了未知 layer_id：{item.get('layer_id')}")
             if not isinstance(label, str) or not label.strip():
                 error("BRIEF-ELEMENTS", f"图{number} 元素 {eid} 缺少 label")
@@ -258,6 +291,7 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
             error("BRIEF-MARK", f"图{number} 部件标记与步骤号发生冲突")
 
         relation_ids: set[str] = set()
+        relation_by_id: dict[str, dict[str, Any]] = {}
         route_channels: set[str] = set()
         relations = figure.get("relations") or []
         for relation in relations:
@@ -269,7 +303,8 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
                 error("BRIEF-RELATION", f"图{number} 关系 ID 缺失、非法或重复：{rid}")
                 continue
             relation_ids.add(rid)
-            if schema_id == SCHEMA_ID_V3:
+            relation_by_id[rid] = relation
+            if schema_id in {SCHEMA_ID_V3, SCHEMA_ID_V4}:
                 channel = relation.get("route_channel")
                 if not isinstance(channel, str) or not ID_RE.fullmatch(channel) or channel in route_channels:
                     error("BRIEF-ROUTE-CHANNEL", f"图{number} 关系 {rid} 缺少独立 route_channel 或通道重复：{channel}")
@@ -293,7 +328,7 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
             elif source_corpus and anchor not in source_corpus:
                 error("BRIEF-EVIDENCE", f"图{number} 关系 {rid} 的 source_anchor 在冻结来源中找不到：{anchor}")
 
-        if schema_id == SCHEMA_ID_V3:
+        if schema_id in {SCHEMA_ID_V3, SCHEMA_ID_V4}:
             budget = figure.get("complexity_budget")
             if not isinstance(budget, dict):
                 error("BRIEF-COMPLEXITY", f"图{number} 缺少 complexity_budget")
@@ -360,6 +395,117 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
             if relation_ids - covered_relations:
                 error("BRIEF-SPEC-ASSERTION", f"图{number} 有技术关系未被说明书图示声明覆盖：{sorted(relation_ids - covered_relations)}")
 
+        if schema_id == SCHEMA_ID_V4 and figure.get("diagram_type") == "method_flowchart":
+            claim_number = figure.get("method_claim_number")
+            architecture_method = architecture_methods.get(claim_number) if isinstance(claim_number, int) else None
+            if architecture_method is None:
+                error("BRIEF-STEP-CLAIM", f"图{number} method_claim_number未指向架构合同中的方法权利要求")
+                architecture_method = {"steps": [], "decisions": [], "loops": []}
+            architecture_steps = architecture_method.get("steps") or []
+            architecture_step_by_id = {item.get("step_id"): item for item in architecture_steps if isinstance(item, dict)}
+            expected_step_ids = [item.get("step_id") for item in architecture_steps if isinstance(item, dict)]
+            bindings = figure.get("step_bindings")
+            if not isinstance(bindings, list) or not bindings:
+                error("BRIEF-STEP-BINDING", f"图{number} 缺少step_bindings")
+                bindings = []
+            bound_step_ids: list[str] = []
+            step_to_element: dict[str, str] = {}
+            for binding_index, binding in enumerate(bindings, start=1):
+                if not isinstance(binding, dict):
+                    error("BRIEF-STEP-BINDING", f"图{number} 第{binding_index}个步骤绑定不是对象")
+                    continue
+                step_id = binding.get("step_id")
+                element_id = binding.get("element_id")
+                if not isinstance(step_id, str) or not STEP_RE.fullmatch(step_id) or step_id in bound_step_ids:
+                    error("BRIEF-STEP-BINDING", f"图{number} step_id缺失、非法或重复：{step_id}")
+                    continue
+                bound_step_ids.append(step_id)
+                if not isinstance(element_id, str) or element_id not in element_by_id:
+                    error("BRIEF-STEP-BINDING", f"图{number} {step_id}引用未知元素：{element_id}")
+                    continue
+                step_to_element[step_id] = element_id
+                element = element_by_id[element_id]
+                if element.get("kind") != "step" or element.get("reference_sign") != step_id:
+                    error("BRIEF-STEP-BINDING", f"图{number} {step_id}必须绑定kind=step且reference_sign相同的元素")
+                source = architecture_step_by_id.get(step_id)
+                if source is None:
+                    error("BRIEF-STEP-ISOMORPHISM", f"图{number} {step_id}不在权利要求架构合同中")
+                    continue
+                claim_action = binding.get("claim_action")
+                spec_anchor = binding.get("specification_anchor")
+                if claim_action != source.get("action"):
+                    error("BRIEF-STEP-TEXT", f"图{number} {step_id}的claim_action未逐字绑定架构合同")
+                if spec_anchor != source.get("specification_anchor"):
+                    error("BRIEF-STEP-TEXT", f"图{number} {step_id}的说明书锚点未逐字绑定架构合同")
+                if compact_text(element.get("label", "")) != compact_text(step_id + str(claim_action or "")):
+                    error("BRIEF-STEP-TEXT", f"图{number} {step_id}图框文字必须等于步骤号加权利要求动作，不得自行概括")
+            if bound_step_ids != expected_step_ids:
+                error("BRIEF-STEP-ISOMORPHISM", f"图{number} 步骤{bound_step_ids}与架构合同{expected_step_ids}不一致")
+            if step_marks != set(expected_step_ids):
+                error("BRIEF-STEP-ISOMORPHISM", f"图{number} 图面步骤标记{sorted(step_marks)}与架构合同{expected_step_ids}不一致")
+
+            architecture_decisions = {item.get("decision_id"): item for item in architecture_method.get("decisions") or [] if isinstance(item, dict)}
+            decision_bindings = figure.get("decision_bindings")
+            if not isinstance(decision_bindings, list):
+                error("BRIEF-DECISION-BINDING", f"图{number} decision_bindings必须是数组")
+                decision_bindings = []
+            bound_decisions: dict[str, str] = {}
+            for binding in decision_bindings:
+                if not isinstance(binding, dict):
+                    error("BRIEF-DECISION-BINDING", f"图{number} decision_binding必须是对象")
+                    continue
+                decision_id = binding.get("decision_id")
+                element_id = binding.get("element_id")
+                if decision_id not in architecture_decisions or decision_id in bound_decisions:
+                    error("BRIEF-DECISION-BINDING", f"图{number} decision_id未知或重复：{decision_id}")
+                    continue
+                if element_id not in element_by_id or element_by_id[element_id].get("kind") != "decision":
+                    error("BRIEF-DECISION-BINDING", f"图{number} 判断{decision_id}必须绑定kind=decision的元素")
+                    continue
+                bound_decisions[str(decision_id)] = str(element_id)
+                source = architecture_decisions[decision_id]
+                if binding.get("condition") != source.get("condition") or compact_text(element_by_id[element_id].get("label", "")) != compact_text(str(source.get("condition", ""))):
+                    error("BRIEF-DECISION-TEXT", f"图{number} 判断{decision_id}文字未逐字绑定架构合同")
+                targets = {relation.get("target") for relation in relations if isinstance(relation, dict) and relation.get("source") == element_id}
+                expected_targets = {step_to_element.get(source.get("true_target_step_id")), step_to_element.get(source.get("false_target_step_id"))}
+                if None in expected_targets or not expected_targets <= targets:
+                    error("BRIEF-DECISION-ROUTING", f"图{number} 判断{decision_id}未连接至架构合同规定的两个步骤")
+            if set(bound_decisions) != set(architecture_decisions):
+                error("BRIEF-DECISION-ISOMORPHISM", f"图{number} 判断集合与架构合同不一致")
+            diagram_decision_ids = {eid for eid, item in element_by_id.items() if item.get("kind") == "decision"}
+            if set(bound_decisions.values()) != diagram_decision_ids:
+                error("BRIEF-DECISION-ISOMORPHISM", f"图{number} 图面判断节点与decision_bindings不一致")
+
+            architecture_loops = {(item.get("from_step_id"), item.get("to_step_id"), item.get("condition")) for item in architecture_method.get("loops") or [] if isinstance(item, dict)}
+            loop_bindings = figure.get("loop_bindings")
+            if not isinstance(loop_bindings, list):
+                error("BRIEF-LOOP-BINDING", f"图{number} loop_bindings必须是数组")
+                loop_bindings = []
+            bound_loops: set[tuple[Any, Any, Any]] = set()
+            for binding in loop_bindings:
+                if not isinstance(binding, dict):
+                    error("BRIEF-LOOP-BINDING", f"图{number} loop_binding必须是对象")
+                    continue
+                signature = (binding.get("from_step_id"), binding.get("to_step_id"), binding.get("condition"))
+                bound_loops.add(signature)
+                if signature not in architecture_loops:
+                    error("BRIEF-LOOP-ISOMORPHISM", f"图{number} 循环{signature}不在架构合同中")
+                relation = relation_by_id.get(binding.get("relation_id"))
+                if relation is None:
+                    error("BRIEF-LOOP-BINDING", f"图{number} 循环引用未知关系：{binding.get('relation_id')}")
+                    continue
+                expected_target = step_to_element.get(binding.get("to_step_id"))
+                possible_sources = {step_to_element.get(binding.get("from_step_id"))}
+                possible_sources.update(
+                    bound_decisions.get(did) for did, decision in architecture_decisions.items()
+                    if decision.get("after_step_id") == binding.get("from_step_id")
+                )
+                possible_sources.discard(None)
+                if relation.get("target") != expected_target or relation.get("source") not in possible_sources:
+                    error("BRIEF-LOOP-ROUTING", f"图{number} 循环关系未指向架构合同规定的返回步骤")
+            if bound_loops != architecture_loops:
+                error("BRIEF-LOOP-ISOMORPHISM", f"图{number} 循环集合与架构合同不一致")
+
         outputs = figure.get("outputs")
         resolved_outputs: dict[str, str] = {}
         if not isinstance(outputs, dict):
@@ -386,13 +532,15 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
             "relations": len(figure.get("relations") or []),
             "component_marks": sorted(component_marks),
             "step_marks": sorted(step_marks),
+            "method_claim_number": figure.get("method_claim_number") if schema_id == SCHEMA_ID_V4 and figure.get("diagram_type") == "method_flowchart" else None,
+            "bound_step_ids": [item.get("step_id") for item in figure.get("step_bindings") or [] if isinstance(item, dict)] if schema_id == SCHEMA_ID_V4 else [],
             "outputs": resolved_outputs,
         })
     if numbers and numbers != list(range(1, len(numbers) + 1)):
         error("BRIEF-NUMBERING", f"图号必须从1连续排列，实际为 {numbers}")
 
     return {
-        "schema_id": "cn-patent-drawing-brief-validation/v2",
+        "schema_id": "cn-patent-drawing-brief-validation/v3" if schema_id == SCHEMA_ID_V4 else "cn-patent-drawing-brief-validation/v2",
         "brief": str(brief_path.resolve()),
         "brief_sha256": sha256(brief_path),
         "case_dir": str(case_dir),
@@ -400,7 +548,7 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
         "errors": errors,
         "warnings": warnings,
         "evidence_scope": {
-            "proves": ["绘图合同字段、来源哈希、元素关系引用和输出路径可复算", "v3 的阅读层级、复杂度预算、出口和正文图示声明满足结构合同"],
+            "proves": ["绘图合同字段、来源哈希、元素关系引用和输出路径可复算", "v3/v4的阅读层级、复杂度预算、出口和正文图示声明满足结构合同", "v4方法流程图与权利要求架构合同的步骤、判断和循环同构"],
             "does_not_prove": ["最终 PNG 不存在视觉缺陷", "图示技术关系具有法律支持或创造性"],
         },
         "sources": bound_sources,

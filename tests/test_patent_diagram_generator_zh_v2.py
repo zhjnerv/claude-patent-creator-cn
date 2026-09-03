@@ -292,6 +292,7 @@ def test_official_cli_export_and_final_verifier_pass(tmp_path):
     [
         ("PATENT-DRAWING-SOURCE-BINDING", "source-binding-observable", "source-binding-pass", "stale-source.json"),
         ("PATENT-DRAWING-TECH-COVERAGE", "tech-coverage-observable", "tech-coverage-pass", "missing-element.json"),
+        ("PATENT-DRAWING-STEP-ISOMORPHISM", "step-isomorphism-observable", "step-isomorphism-pass", "step-isomorphism-mismatch.json"),
         ("PATENT-DRAWING-DIRECT-CONNECTOR", "direct-connector-observable", "direct-connector-pass", "historical-text-waypoint.json"),
         ("PATENT-DRAWING-COLOR", "color-observable", "color-pass", "flashy-color.json"),
         ("PATENT-DRAWING-OFFICIAL-EXPORT", "official-export-observable", "official-export-pass", "forged-export.json"),
@@ -299,9 +300,10 @@ def test_official_cli_export_and_final_verifier_pass(tmp_path):
     ],
 )
 def test_stability_checker_has_positive_and_negative_evidence(constraint_id, observable, measurement, negative_fixture):
+    positive_fixture = "positive-step-isomorphism.json" if constraint_id == "PATENT-DRAWING-STEP-ISOMORPHISM" else "positive-final-verification.json"
     positive = run(
         STABILITY_CHECKER,
-        "--report", str(STABILITY_ASSETS / "positive-final-verification.json"),
+        "--report", str(STABILITY_ASSETS / positive_fixture),
         "--constraint", constraint_id,
         "--observable", observable,
         "--measurement", measurement,
@@ -330,6 +332,7 @@ def test_stability_contract_covers_all_hard_constraints():
     assert constraint_ids == {
         "PATENT-DRAWING-SOURCE-BINDING",
         "PATENT-DRAWING-TECH-COVERAGE",
+        "PATENT-DRAWING-STEP-ISOMORPHISM",
         "PATENT-DRAWING-DIRECT-CONNECTOR",
         "PATENT-DRAWING-COLOR",
         "PATENT-DRAWING-OFFICIAL-EXPORT",
@@ -340,7 +343,7 @@ def test_stability_contract_covers_all_hard_constraints():
 def test_skill_is_domain_adapter_for_drawio_skill():
     skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     for required in (
-        'version: "3.0.0"', "drawio-skill", "cn-patent-drawing-brief/v3",
+        'version: "4.0.0"', "drawio-skill", "cn-patent-drawing-brief/v4",
         "Draw.io Desktop CLI", "patent_restrained_color", "verify_patent_drawings.py",
     ):
         assert required in skill

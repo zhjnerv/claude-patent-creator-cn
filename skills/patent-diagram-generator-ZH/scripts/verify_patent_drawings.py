@@ -308,18 +308,18 @@ def reproduce_official_export(drawio_path: Path, final_png: Path, export: dict[s
 def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> dict[str, Any]:
     brief_report = brief_validator.validate_brief(brief_path, case_dir)
     errors = list(brief_report.get("errors", []))
-    if errors:
-        return {"schema_id": "cn-patent-drawing-verification/v2", "status": "FAIL", "errors": errors, "brief_validation": brief_report}
     brief = load_json(brief_path, "drawing-brief.json")
     brief_schema = brief.get("schema_id")
-    output_schema = "cn-patent-drawing-verification/v3" if brief_schema == "cn-patent-drawing-brief/v3" else "cn-patent-drawing-verification/v2"
+    output_schema = ({"cn-patent-drawing-brief/v4": "cn-patent-drawing-verification/v4", "cn-patent-drawing-brief/v3": "cn-patent-drawing-verification/v3"}.get(brief_schema, "cn-patent-drawing-verification/v2"))
+    if errors:
+        return {"schema_id": output_schema, "status": "FAIL", "errors": errors, "brief_validation": brief_report}
     drawio_skill = find_drawio_skill(drawio_skill_dir)
     visual_path = resolve_under(case_dir, brief["visual_review_path"], "visual_review_path")
     visual = load_json(visual_path, "visual-review.json")
     visual_schema = visual.get("schema_id")
-    if brief_schema == "cn-patent-drawing-brief/v3":
+    if brief_schema in {"cn-patent-drawing-brief/v3", "cn-patent-drawing-brief/v4"}:
         if visual_schema != "cn-patent-drawing-visual-review/v2":
-            errors.append({"code": "DRAWING-VISUAL", "message": "v3 绘图合同必须使用 cn-patent-drawing-visual-review/v2"})
+            errors.append({"code": "DRAWING-VISUAL", "message": "v3/v4绘图合同必须使用 cn-patent-drawing-visual-review/v2"})
         if visual.get("brief_sha256") != sha256(brief_path):
             errors.append({"code": "DRAWING-VISUAL-STALE", "message": "视觉复核绑定的绘图合同已陈旧"})
         if not isinstance(visual.get("review_method"), str) or not visual["review_method"].strip():
@@ -389,7 +389,7 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
                     errors.append({"code": "DRAWING-VISUAL-STALE", "message": f"图{number} 视觉复核指向的不是当前最终 PNG"})
             if review.get("png_sha256") != sha256(paths["final_png"]):
                 errors.append({"code": "DRAWING-VISUAL-STALE", "message": f"图{number} 视觉复核绑定的 PNG 已陈旧"})
-            if brief_schema == "cn-patent-drawing-brief/v3":
+            if brief_schema in {"cn-patent-drawing-brief/v3", "cn-patent-drawing-brief/v4"}:
                 try:
                     reviewed_export = resolve_under(case_dir, review.get("export_report_path", ""), f"图{number} visual export_report_path")
                 except ValueError as exc:
@@ -423,7 +423,7 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
             for check in required_checks:
                 if checks.get(check) is not True:
                     errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 视觉检查未通过：{check}"})
-            if brief_schema == "cn-patent-drawing-brief/v3":
+            if brief_schema in {"cn-patent-drawing-brief/v3", "cn-patent-drawing-brief/v4"}:
                 observations = (review.get("inspection") or {}).get("observations")
                 if not isinstance(observations, dict):
                     errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 缺少逐项 observations"})

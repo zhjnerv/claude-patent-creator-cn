@@ -285,9 +285,28 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-ap
 
 **实施例形态服从范本组织方式。** `style-brief.json` 的 `specification.embodiments.organization` 决定说明书形态：`sectioned` 才允许拆成 `### 实施例N`；`single_flow` 与 `none` 必须收敛为一条实施方式脉络，变体用"作为替代或者与前述实施方式组合"一类的过渡写在同一脉络内。**按实施例数量机械拆节是错的**——数量回答不了形态。简报里的 `warnings` 每一条都必须处理或记录不处理的理由。
 
+**权利要求架构门（强制）。** 权利要求和说明书形成后、绘图合同生成前，必须建立 `cn-patent-claim-architecture/v1`（见 `references/claim-architecture-schema-v1.json` 和 `references/claim-architecture.md`），执行：
+
+```bash
+python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-application-creator-CN/scripts/validate_claim_architecture.py" \
+  --contract "<claim-architecture.json>" \
+  --case-dir "<案件根目录>" \
+  --claims "<权利要求书.md>" \
+  --specification "<说明书.md>" \
+  --output "<claim-architecture-validation.json>"
+```
+
+该门同时执行三类检查：
+
+1. **独权载体分工**：公式、符号定义、实施细节和控制时序逐项决定留在独权、下沉从权或留在说明书。高公式量、高符号量或跨多个执行阶段时必须由独立审查者批准；不得把“内容完整”误当成“独权简要”。
+2. **父从权继承拓扑**：先合并全部父项连接边，再加入从属项新增边；同一排他端口出现不同来源时硬失败。新增中间模块不能靠从权静默替换父项的直接连接。
+3. **方法步骤冻结**：逐项冻结 `S1—Sn`、动作原文、说明书锚点、判断分支和循环返回点。此后说明书流程段和附图只能消费该合同，不得另行概括或重新划分步骤。
+
+退出码非零时不得生成绘图合同、进入综合审查或组装 DOCX。权利要求或说明书任何字节变化都会使本合同及其下游附图证据失效。
+
 **终态完备性。** 任何断言确定性终止、有界重试或保证结果的说明书，都必须穷举每一个终态和每一次预算转换——包括不体面的那些（机械性耗尽、全局超限兜底）——附图必须用带标签的边展示每个分支。
 
-**附图。** 本技能不直接承担 Draw.io 布局和导出。先依据权利要求、说明书与 `feature-ledger.json` 生成 `cn-patent-drawing-brief/v3`，冻结图号、单图唯一问题、阅读层级、复杂度预算、技术元素、部件标记、步骤号、关系通道、正常/异常出口、正文图示声明、来源锚点、配色策略和输出路径；通过 `patent-diagram-generator-ZH/scripts/validate_drawing_brief.py` 后，将合同交给 `patent-diagram-generator-ZH`，由其调用专业 `drawio-skill` 完成实际布局、原生 `.drawio` 制作、Draw.io Desktop CLI 官方导出和视觉迭代。专利图可选黑白或克制彩色，但颜色不得成为唯一语义载体。最终必须产生 `visual-review.json` 和 `final-verification.json`，并由 `verify_patent_drawings.py` 复算来源哈希、标记、关系、路由、配色、官方导出和视觉记录；退出码非零时不得进入 DOCX 组装。附图标记的**分配**属于本阶段，不得推迟到制图端。
+**附图。** 本技能不直接承担 Draw.io 布局和导出。先依据权利要求、说明书、`feature-ledger.json` 与已通过验证的 `claim-architecture.json` 生成 `cn-patent-drawing-brief/v4`，冻结图号、单图唯一问题、阅读层级、复杂度预算、技术元素、部件标记、步骤号、关系通道、正常/异常出口、正文图示声明、方法步骤绑定、判断节点、循环边、来源锚点、配色策略和输出路径；通过 `patent-diagram-generator-ZH/scripts/validate_drawing_brief.py` 后，将合同交给 `patent-diagram-generator-ZH`，由其调用专业 `drawio-skill` 完成实际布局、原生 `.drawio` 制作、Draw.io Desktop CLI 官方导出和视觉迭代。专利图可选黑白或克制彩色，但颜色不得成为唯一语义载体。最终必须产生 `visual-review.json` 和 `final-verification.json`，并由 `verify_patent_drawings.py` 复算来源哈希、标记、关系、路由、配色、官方导出和视觉记录；退出码非零时不得进入 DOCX 组装。附图标记的**分配**属于本阶段，不得推迟到制图端。
 
 ## 说明书输出格式（强制）
 
@@ -414,7 +433,7 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-re
 
 申请人、发明人、联系电话、地址、联系人、代理机构、签章、费用减缴及请求书字段不属于本技能交付范围，不得作为四文书生成完成的阻断项。序列表、生物材料保藏证明、遗传资源声明、优先权文件和第二十四条证明等条件性程序材料也不进入四文书交付目录；如技术方案触发相关事项，只在审查工作区记录缺口和提醒，不得静默认定不适用。
 
-`technical-features.json`、`search-query.json`、`template-candidates.json`、`template-selection.json`、CNIPA 人工检索记录、范本筛选理由、`template-style-guide.json`、`composite-template-style-guide.json`、`style-brief.json`、`stage2-gate.json`、`feature-ledger.json`、《区别特征表.md》、验证报告、哈希印章、程序时限提醒和其他策略材料均属于工作证据，保留在检索/审查工作区，不进入四文书交付目录。
+`technical-features.json`、`search-query.json`、`template-candidates.json`、`template-selection.json`、CNIPA 人工检索记录、范本筛选理由、`template-style-guide.json`、`composite-template-style-guide.json`、`style-brief.json`、`stage2-gate.json`、`feature-ledger.json`、`claim-architecture.json`、`claim-architecture-validation.json`、《区别特征表.md》、验证报告、哈希印章、程序时限提醒和其他策略材料均属于工作证据，保留在检索/审查工作区，不进入四文书交付目录。
 
 **边界**：四文书交付完成不等于官方申请手续已经完备。正式递交时的请求书、主体信息、签章、费用和其他条件性文件由申报环节另行办理；本技能不得因其未提供而拒绝生成四文书，也不得把四文书包描述成官方手续完整。
 
@@ -423,6 +442,9 @@ python "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/patent-re
 - **在用户确认范本、完成人工检索之前就动笔起草。** 写一句"检索未完成"再继续，字面合规但实质越权；阶段门的 `pending` 就是为堵这条路存在的，跳过必须带用户原话。
 - **把实施例数量当成说明书形态。** `single_flow` 范本按数量拆成 N 个平行实施例，是范本学习最容易发生也最难察觉的失真。
 - **手写复合风格指南。** 不在脚本输出路径上的指南没有任何机器校验，手改的数字会一路走到起草端。
+- **把说明书式完整展开直接复制进独立权利要求。** 多组公式、集中符号定义和实施动作必须先做载体分工；简要性不能等到审查员指出。
+- **把实施方式的“替换连接”写成从属项的“新增连接”。** 从属项继承父项全部边，必须复算继承后的完整拓扑。
+- **让权利要求、说明书和流程图各自划分步骤。** 方法步骤、判断和循环必须先在权利要求架构合同中冻结，流程图不得为了版面自行合并或改写。
 - **让权利要求、说明书和附图各自持有一份技术事实副本。** 三者必须由区别特征表派生，一致性靠四向对账保证，不靠人工通读。
 - 按美国节奏行事：以为可以先公开、后申请——中国的宽限期不覆盖自行发布。
 - 发明明明在代码里，却相信一次交底访谈。

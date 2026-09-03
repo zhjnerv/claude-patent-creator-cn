@@ -11,6 +11,7 @@ from typing import Any
 SUPPORTED = {
     "PATENT-DRAWING-SOURCE-BINDING",
     "PATENT-DRAWING-TECH-COVERAGE",
+    "PATENT-DRAWING-STEP-ISOMORPHISM",
     "PATENT-DRAWING-DIRECT-CONNECTOR",
     "PATENT-DRAWING-COLOR",
     "PATENT-DRAWING-OFFICIAL-EXPORT",
@@ -67,6 +68,20 @@ def check_constraint(report: dict[str, Any], constraint: str) -> tuple[bool, lis
         relevant = sorted(code for code in codes if code.startswith(prefixes))
         ok = bool(figures) and all((item.get("drawio") or {}).get("passed") is True for item in figures) and not relevant
         return ok, [f"figures:{len(figures)}"] if ok else relevant or ["drawio-coverage-fail"]
+
+    if constraint == "PATENT-DRAWING-STEP-ISOMORPHISM":
+        brief = report.get("brief_validation") or {}
+        relevant = sorted(
+            code for code in codes
+            if code.startswith(("BRIEF-STEP", "BRIEF-DECISION", "BRIEF-LOOP", "BRIEF-ARCHITECTURE"))
+        )
+        v4 = report.get("schema_id") == "cn-patent-drawing-verification/v4"
+        figures_bound = bool(brief.get("figures")) and all(
+            isinstance(item.get("method_claim_number"), int) and bool(item.get("bound_step_ids"))
+            for item in brief.get("figures", []) if isinstance(item, dict)
+        )
+        ok = v4 and brief.get("status") == "PASS" and figures_bound and not relevant
+        return ok, ["method-step-isomorphism-pass"] if ok else relevant or ["method-step-isomorphism-fail"]
 
     if constraint == "PATENT-DRAWING-DIRECT-CONNECTOR":
         prefixes = ("DRAWING-DIRECT", "DRAWING-EDGE-LABEL", "DRAWING-TEXT-WAYPOINT", "DRAWING-ROUTE", "DRAWING-LINT")

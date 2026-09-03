@@ -629,8 +629,8 @@
       "group": "substantive_core",
       "citation": "专利法第二十六条第四款；实施细则第二十二条至第二十五条；指南第二部分第二章",
       "applicability": "每项权利要求均适用。",
-      "required_evidence": "权利要求全文、术语含义、引用关系、保护范围和说明书定义。",
-      "non_inference_boundary": "编号或引用形式正确不等于保护范围清楚。"
+      "required_evidence": "权利要求全文、术语含义、引用关系、保护范围、说明书定义，以及高复杂度独权的载体分工和父从权继承拓扑记录。",
+      "non_inference_boundary": "编号、引用形式或节点名称正确不等于保护范围清楚、表述简要或继承后的连接关系自洽。"
     },
     {
       "id": "claim_support",

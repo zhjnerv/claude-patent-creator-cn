@@ -1,5 +1,5 @@
 {
-  "schema_id": "cn-patent-drawing-brief/v3",
+  "schema_id": "cn-patent-drawing-brief/v4",
   "case_id": "示例案件",
   "generated_at": "2026-08-28",
   "source_artifacts": [
@@ -17,6 +17,11 @@
       "artifact_id": "feature_ledger",
       "path": "../../01-检索/feature-ledger.json",
       "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "artifact_id": "claim_architecture",
+      "path": "../../03-审查工作区/claim-architecture.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
   ],
   "output_root": "../说明书附图",
@@ -51,7 +56,9 @@
     },
     "single_primary_question_required": true,
     "independent_route_channels_required": true,
-    "final_png_visual_review_required": true
+    "final_png_visual_review_required": true,
+    "method_step_isomorphism_required": true,
+    "source_text_binding_required": true
   },
   "visual_review_path": "visual-review.json",
   "figures": [
@@ -70,10 +77,10 @@
       ],
       "elements": [
         {
-          "id": "S100",
-          "label": "开始",
-          "kind": "start_end",
-          "reference_sign": "S100",
+          "id": "STEP1",
+          "label": "S1 开始处理",
+          "kind": "step",
+          "reference_sign": "S1",
           "source_anchor": "开始处理",
           "layer_id": "L1",
           "source_feature_ids": [
@@ -81,10 +88,9 @@
           ]
         },
         {
-          "id": "S110",
+          "id": "DECIDE",
           "label": "条件满足？",
           "kind": "decision",
-          "reference_sign": "S110",
           "source_anchor": "条件校验",
           "layer_id": "L2",
           "source_feature_ids": [
@@ -92,10 +98,10 @@
           ]
         },
         {
-          "id": "S120",
-          "label": "执行处理",
+          "id": "STEP2",
+          "label": "S2 执行处理",
           "kind": "step",
-          "reference_sign": "S120",
+          "reference_sign": "S2",
           "source_anchor": "执行处理",
           "layer_id": "L3",
           "source_feature_ids": [
@@ -106,8 +112,8 @@
       "relations": [
         {
           "id": "R1",
-          "source": "S100",
-          "target": "S110",
+          "source": "STEP1",
+          "target": "DECIDE",
           "kind": "control",
           "preferred_direction": "vertical",
           "direct_connection_required": true,
@@ -119,14 +125,28 @@
         },
         {
           "id": "R2",
-          "source": "S110",
-          "target": "S120",
+          "source": "DECIDE",
+          "target": "STEP2",
           "label": "是",
           "kind": "control",
           "preferred_direction": "vertical",
           "direct_connection_required": true,
           "source_anchor": "条件满足时",
           "route_channel": "C2",
+          "source_feature_ids": [
+            "F001"
+          ]
+        },
+        {
+          "id": "R3",
+          "source": "DECIDE",
+          "target": "STEP1",
+          "label": "否",
+          "kind": "control",
+          "preferred_direction": "vertical",
+          "direct_connection_required": true,
+          "source_anchor": "条件不满足时返回开始处理",
+          "route_channel": "C3",
           "source_feature_ids": [
             "F001"
           ]
@@ -161,24 +181,56 @@
       ],
       "complexity_budget": {
         "max_technical_elements": 6,
-        "max_relations": 6,
+        "max_relations": 3,
         "max_decisions": 2
       },
       "normal_exit_ids": [
-        "S120"
+        "STEP2"
       ],
       "exception_exit_ids": [],
       "spec_assertions": [
         {
           "anchor": "条件满足时",
           "element_ids": [
-            "S110",
-            "S120"
+            "STEP1",
+            "DECIDE",
+            "STEP2"
           ],
           "relation_ids": [
             "R1",
-            "R2"
+            "R2",
+            "R3"
           ]
+        }
+      ],
+      "method_claim_number": 1,
+      "step_bindings": [
+        {
+          "step_id": "S1",
+          "element_id": "STEP1",
+          "claim_action": "开始处理",
+          "specification_anchor": "开始处理"
+        },
+        {
+          "step_id": "S2",
+          "element_id": "STEP2",
+          "claim_action": "执行处理",
+          "specification_anchor": "执行处理"
+        }
+      ],
+      "decision_bindings": [
+        {
+          "decision_id": "D1",
+          "element_id": "DECIDE",
+          "condition": "条件满足？"
+        }
+      ],
+      "loop_bindings": [
+        {
+          "relation_id": "R3",
+          "from_step_id": "S1",
+          "to_step_id": "S1",
+          "condition": "条件不满足"
         }
       ]
     }

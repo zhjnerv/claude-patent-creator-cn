@@ -20,6 +20,16 @@
 - 超过约15个节点、层级或连线较多：优先使用 `drawio-skill/scripts/autolayout.py` 形成候选布局，再按专利要求人工调整；不要直接用大量绝对坐标硬凑。
 - 申请文件通常不直接使用 Mermaid 转换结果，因为节点 ID、附图标记、线型和旁置标签需要严格控制；只有简单图且转换后仍满足交接合同时才可使用。
 
+## 方法流程图文字来源
+
+使用 `cn-patent-drawing-brief/v4` 时，方法流程图必须先读取其绑定的 `claim-architecture.json`：
+
+- 每个步骤框使用 `step_bindings[].claim_action`，图框文字为步骤号加该动作原文；
+- 判断框使用 `decision_bindings[].condition`；
+- 循环边使用 `loop_bindings` 规定的起点、返回步骤和条件；
+- 不得为缩短文字自行概括、合并两个步骤或改变循环归属；
+- 文字过长时扩大节点、增加画布高度或拆图，不得改写技术动作。
+
 ## ID 与可追溯性
 
 - 每个技术元素的 `mxCell id` 使用绘图合同中的 `elements[].id`。

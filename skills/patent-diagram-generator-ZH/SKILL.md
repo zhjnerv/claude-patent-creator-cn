@@ -1,11 +1,11 @@
 ---
 name: patent-diagram-generator-ZH
-version: "3.0.0"
-description: 中国专利说明书附图的领域适配与验收 Skill。应在从权利要求书、说明书和区别特征台账生成或修改中国发明/实用新型附图时使用：先冻结图号、技术元素、部件标记、步骤号和关系，形成 cn-patent-drawing-brief/v3，再调用 drawio-skill 完成专业布局、原生 .drawio 制作、Draw.io Desktop CLI 导出和视觉迭代，最后执行专利图文一致性与候选绑定验收。不要用于一般商业图表，也不要在本 Skill 内另造一套 Draw.io 布局或 PNG 渲染器。
+version: "4.0.0"
+description: 中国专利说明书附图的领域适配与验收 Skill。应在从权利要求书、说明书和区别特征台账生成或修改中国发明/实用新型附图时使用：先冻结图号、技术元素、部件标记、步骤号和关系，形成 cn-patent-drawing-brief/v4，再调用 drawio-skill 完成专业布局、原生 .drawio 制作、Draw.io Desktop CLI 导出和视觉迭代，最后执行专利图文一致性与候选绑定验收。不要用于一般商业图表，也不要在本 Skill 内另造一套 Draw.io 布局或 PNG 渲染器。
 allowed-tools: Bash, Read, Write
 ---
 
-# 中国专利附图适配器 v3
+# 中国专利附图适配器 v4
 
 本 Skill 负责**画什么、不能画错什么、如何验收**；`drawio-skill` 负责**怎样用 Draw.io 把图画好**。
 
@@ -29,17 +29,26 @@ allowed-tools: Bash, Read, Write
 
 完整调用和官方导出规则见 `references/drawio-execution.md`。
 
+## 所需权限与安全说明
+
+- 本Skill需要读取案件目录中的权利要求、说明书、JSON合同和附图，并在用户指定案件目录写入 `.drawio`、PNG/SVG及验证报告；不扫描案件目录之外的客户材料。
+- 正式导出和复验会以参数数组、`shell=False`调用本机已安装的 Draw.io Desktop CLI、Python验证脚本和 `drawio-skill`；不会执行附图文字或案件JSON中的命令。
+- Windows下只读取 `LOCALAPPDATA` 以定位标准 Draw.io Desktop 安装路径，不读取账号、令牌、密码或凭据文件。
+- 默认不联网、不自动安装软件、不上传申请文件。Draw.io或`drawio-skill`缺失时按停止条件报告阻塞。
+- 所有输入路径必须经过案件目录边界检查；验证器不得修改客户源文件或以编辑导出PNG绕过母版问题。
+
 ## 输入合同
 
-专利起草端先生成 `cn-patent-drawing-brief/v3`，schema：
+专利起草端先生成 `cn-patent-drawing-brief/v4`，schema：
 
-`references/patent-drawing-brief-schema-v3.json`；v2 仅用于旧案件回放
+`references/patent-drawing-brief-schema-v4.json`；v2/v3 仅用于旧案件回放。v4必须额外绑定已通过验证的 `cn-patent-claim-architecture/v1`
 
 最少绑定：
 
-- 当前权利要求书、说明书、`feature-ledger.json` 的路径与 SHA-256；
+- 当前权利要求书、说明书、`feature-ledger.json`、`claim-architecture.json` 的路径与 SHA-256；
 - 每幅图的图号、名称、图型、唯一 `primary_question`、阅读方向、层级和复杂度预算；
 - 每个技术元素的稳定 ID、规范名称、部件标记或步骤号、来源锚点；
+- 方法流程图逐项登记 `method_claim_number`、`step_bindings`、`decision_bindings` 和 `loop_bindings`；
 - 每条关系的 source、target、类型、优选方向、独立 `route_channel` 和是否必须直连；
 - 正常/异常出口，以及说明书声称该图表达的元素 ID、关系 ID 和原文锚点；
 - `.drawio`、预览图、最终 PNG/SVG、导出报告的目标路径；
@@ -68,6 +77,8 @@ python scripts/validate_drawing_brief.py \
 6. 边不得携带文字。关系说明和“是/否”使用旁置独立文字节点，但文字节点不得成为边端点或中继。
 7. 每项技术关系只有一条 source→target 直接边。本可竖直或水平直连时不得增加 waypoint；只有绕开无关节点时才使用显式正交路由。
 8. 禁止线穿节点、线穿文字、自交、回钩、重叠、无意义环绕及箭头方向歧义。
+9. 方法流程图的步骤号、顺序、动作文字、判断条件和循环返回点必须逐项来自 `claim-architecture.json`；不得因版面空间自行概括、合并或重新编号。空间不足时扩大节点、画布或拆图。
+10. 权利要求、说明书或权利要求架构合同变化后，旧绘图合同、旧视觉记录和旧最终附图全部失效。
 
 ## 图型与样式
 
@@ -165,7 +176,8 @@ python scripts/verify_patent_drawings.py \
 - drawio-skill `validate.py --strict`；
 - Draw.io Desktop CLI 导出证据；
 - PNG DPI、导出哈希和视觉复核新鲜度；
-- v3 合同的唯一问题、阅读层级、复杂度预算、独立线路通道、正常/异常出口和图文表达范围；
+- v4合同的唯一问题、阅读层级、复杂度预算、独立线路通道、正常/异常出口和图文表达范围；
+- 方法流程图与权利要求架构合同的步骤集合、动作原文、判断节点和循环返回点同构；
 - v2 视觉记录的合同/导出/PNG 三重绑定、检查比例和逐项观察。
 
 退出码非零或报告 `status != PASS` 时，不得把附图交回专利起草流程。
