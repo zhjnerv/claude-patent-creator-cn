@@ -19,8 +19,8 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills/patent-specification-reviewer-CN/scripts/build_support_matrix_cn.py"
-CONTRACT_SCRIPT = ROOT / "skills/patent-reviewer-CN/scripts/cn_contract.py"
+SCRIPT = ROOT / "skills/cn-patent-specification-reviewer/scripts/build_support_matrix_cn.py"
+CONTRACT_SCRIPT = ROOT / "skills/cn-patent-reviewer/scripts/cn_contract.py"
 
 
 def load_script(name: str, path: Path):

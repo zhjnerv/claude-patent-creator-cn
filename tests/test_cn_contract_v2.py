@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTRACT_PATH = ROOT / "skills/patent-reviewer-CN/references/cn-review-contract-v2.json"
+CONTRACT_PATH = ROOT / "skills/cn-patent-reviewer/references/cn-review-contract-v2.json"
 
 EXPECTED_DIMENSIONS = {
     "article_5", "article_25", "technical_solution", "utility", "disclosure",
@@ -165,8 +165,10 @@ class ContractV2Tests(unittest.TestCase):
         )
         self.assertEqual(
             contract["exact_fields"]["bundle_evidence_binding"],
-            ["input_set_sha256", "rule_set_sha256", "tool_set_sha256", "raw_report_set_sha256"],
+            ["input_set_sha256", "provenance_set_sha256", "rule_set_sha256", "tool_set_sha256", "raw_report_set_sha256"],
         )
+        self.assertEqual(contract["optional_fields"]["bundle"], ["provenance_artifacts"])
+        self.assertEqual(contract["optional_fields"]["bundle_evidence_binding"], ["provenance_set_sha256"])
         self.assertIn("finding_id", contract["exact_fields"]["raw_finding"])
         self.assertIn("gap_id", contract["exact_fields"]["raw_gap"])
         self.assertEqual(contract["exact_fields"]["raw_evidence"], ["artifact_id", "location", "excerpt"])
@@ -210,6 +212,7 @@ class ContractV2Tests(unittest.TestCase):
     def test_rule_dimension_map_covers_claim_structure_and_tool_only_rules(self):
         mapping = self.contract["rule_dimension_map"]
         self.assertEqual(mapping["CN-CLAIM-MULTI-001"], "form_claim_presentation_and_reference_form")
+        self.assertEqual(mapping["CN-CLAIM-LENGTH-001"], "form_claim_presentation_and_reference_form")
         self.assertEqual(mapping["CN-CLAIM-REF-001"], "form_claim_presentation_and_reference_form")
         self.assertEqual(mapping["CN-CLAIM-FUNCTION-001"], "claim_support")
         self.assertEqual(mapping["CN-CLAIM-DEPENDENT-001"], "claim_clarity")

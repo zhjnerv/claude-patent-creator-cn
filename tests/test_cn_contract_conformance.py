@@ -29,10 +29,10 @@ def load_module(name: str, relative: str):
     return module
 
 
-cn_contract = load_module("cn_contract", "skills/patent-reviewer-CN/scripts/cn_contract.py")
-claims_checker = load_module("cn_claims_conformance", "skills/patent-claims-analyzer-CN/scripts/check_claims_cn.py")
-formalities_checker = load_module("cn_formalities_conformance", "skills/patent-formalities-reviewer-CN/scripts/check_formalities_cn.py")
-specification_checker = load_module("cn_specification_conformance", "skills/patent-specification-reviewer-CN/scripts/build_support_matrix_cn.py")
+cn_contract = load_module("cn_contract", "skills/cn-patent-reviewer/scripts/cn_contract.py")
+claims_checker = load_module("cn_claims_conformance", "skills/cn-patent-claims-analyzer/scripts/check_claims_cn.py")
+formalities_checker = load_module("cn_formalities_conformance", "skills/cn-patent-formalities-reviewer/scripts/check_formalities_cn.py")
+specification_checker = load_module("cn_specification_conformance", "skills/cn-patent-specification-reviewer/scripts/build_support_matrix_cn.py")
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_cn_contract_v2 import tuple_errors  # noqa: E402  Wave 1 的参考实现，用于交叉验证

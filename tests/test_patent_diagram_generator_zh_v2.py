@@ -1,4 +1,4 @@
-"""patent-diagram-generator-ZH v2 领域合同、官方导出和历史路由缺陷回归。"""
+"""cn-patent-diagram-generator v2 领域合同、官方导出和历史路由缺陷回归。"""
 from __future__ import annotations
 
 import hashlib
@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL = ROOT / "skills" / "patent-diagram-generator-ZH"
+SKILL = ROOT / "skills" / "cn-patent-diagram-generator"
 BRIEF_VALIDATOR = SKILL / "scripts" / "validate_drawing_brief.py"
 EXPORTER = SKILL / "scripts" / "export_patent_drawio.py"
 VERIFIER = SKILL / "scripts" / "verify_patent_drawings.py"

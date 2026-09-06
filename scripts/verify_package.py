@@ -9,12 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_SKILLS = {
     "cn-patent-workflow",
-    "patent-application-creator-CN",
-    "patent-reviewer-CN",
-    "patent-claims-analyzer-CN",
-    "patent-specification-reviewer-CN",
-    "patent-formalities-reviewer-CN",
-    "patent-diagram-generator-ZH",
+    "cn-patent-application-creator",
+    "cn-patent-reviewer",
+    "cn-patent-claims-analyzer",
+    "cn-patent-specification-reviewer",
+    "cn-patent-formalities-reviewer",
+    "cn-patent-diagram-generator",
 }
 FORBIDDEN_TOP_LEVEL = {"mcp_server", "commands"}
 FORBIDDEN_DEPENDENCIES = {

@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills/patent-formalities-reviewer-CN/scripts/check_formalities_cn.py"
+SCRIPT = ROOT / "skills/cn-patent-formalities-reviewer/scripts/check_formalities_cn.py"
 
 
 def load_checker():

@@ -1,79 +1,188 @@
 # Claude Patent Creator CN
 
-面向中国发明专利申请的轻量 Skill 包。它可以独立安装和运行，也可以作为 `Claude-Patent-Creator` 的可选中国法扩展。
+面向中国发明专利申请的 Codex Skill 工作流。项目以 `cn-patent-workflow` 为唯一总入口，按阶段加载六个专业子 Skill、本地中国法源和确定性校验脚本，完成检索准备、起草、附图、审查及 DOCX 交付。
 
-## 设计边界
+本仓库不包含美国 MPEP RAG、向量索引、Embedding、PyTorch 或主 MCP Server，也不把脚本输出冒充专利代理师的实体法律判断。
 
-本仓库只包含中国专利所需的：
+## 一键安装到 Codex
 
-- 发明挖掘、检索清单、目标 IPC 与范本选择；
-- 权利要求书、说明书、摘要和附图起草；
-- 权利要求、说明书、形式及综合审查；
-- 中国专利说明书附图领域适配；
-- 四文书 DOCX 组装；
-- 中国专利法、实施细则和审查指南本地法源；
-- 确定性合同、验证脚本和测试。
+从仓库根目录执行：
 
-本仓库不包含 MPEP RAG、FAISS/BM25、Embedding、PyTorch、USPTO/PCT/EPO 实体审查或主 MCP Server。
+```bash
+python3 scripts/install_codex_skill.py
+```
 
-## Skill 入口
+安装器会：
 
-- `cn-patent-workflow`：轻量总入口，只加载当前阶段所需 Skill。
-- `patent-application-creator-CN`：完整中国发明专利起草。
-- `patent-reviewer-CN`：综合审查和证据绑定。
-- `patent-claims-analyzer-CN`：权利要求专项审查。
-- `patent-specification-reviewer-CN`：说明书专项审查。
-- `patent-formalities-reviewer-CN`：形式专项审查。
-- `patent-diagram-generator-ZH`：中国专利附图领域适配；名称暂时保留以兼容既有调用。
+1. 将完整运行时复制到 `${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn`；
+2. 在运行时创建 `.venv`，安装 DOCX 所需依赖并执行包边界检查；
+3. 将七个 Skill 链接或复制到 `${CODEX_HOME:-$HOME/.codex}/skills/`；
+4. 写入 `codex-install.json`，记录运行根目录、入口 Skill 和依赖状态。
 
-本项目不提供业务型 Slash Command。自然语言请求由 Skill description 触发，确定性步骤直接调用各 Skill 自带脚本。
+已有安装需要更新时：
 
-## 按需加载
+```bash
+python3 scripts/install_codex_skill.py --force
+```
 
-完整申请的阶段链为：
+需要同时安装测试依赖：
+
+```bash
+python3 scripts/install_codex_skill.py --force --with-dev
+```
+
+安装完成后重新启动 Codex，在新会话中调用：
 
 ```text
-检索与范本 → 起草与关系台账 → 数据流复算 → 权利要求架构门 → drawing brief v4 → 附图视觉验收 → 审查 → DOCX新鲜度复验
+$cn-patent-workflow
 ```
 
-总入口不得一次性读取全部法源和全部 Skill。每个阶段只读取：
+例如：
 
-1. 当前阶段的 `SKILL.md`；
-2. 当前阶段明确引用的规则或 Schema；
-3. 当前案件工件；
-4. 下一阶段所需的结构化交接文件。
+```text
+$cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请文件，并完成附图、综合审查和 DOCX 交付。
+```
 
-审查指南优先读取分章文件；只有全文检索或章节冲突核查时才读取 `guide-full.md`。
+`cn-patent-workflow` 只负责阶段判断和交接。它确定当前阶段后读取对应子 Skill 的 `SKILL.md`，完成后再回到总入口判断下一阶段；不会一次性把全部法源和全部规则塞入上下文。
 
-## 可选外部能力
+## Skill 组成与职责
 
-- `drawio-skill` 与 Draw.io Desktop CLI：仅在生成附图时需要；
-- EPO OPS provider：仅在自动补全候选专利 IPC 时需要；
-- `python-docx`、`lxml`、Pillow：仅在组装 DOCX 时需要；
-- `pywin32`：仅 Windows 原生 Word 公式或视觉渲染时需要。
+| Skill | 作用 | 主要输入 | 主要输出 |
+|---|---|---|---|
+| `cn-patent-workflow` | 唯一总入口，负责阶段路由、根目录解析、失效传播和子 Skill 交接 | 用户任务、当前案件目录 | 当前阶段决策、子 Skill 调用链 |
+| `cn-patent-application-creator` | 发明挖掘、检索式、范本选择、区别特征台账、权利要求架构、四文书起草和 DOCX 组装 | 技术交底、代码、检索与范本材料 | 权利要求书、说明书、摘要、附图索引及过程合同 |
+| `cn-patent-claims-analyzer` | 权利要求编号、引用、多项从属、单项 600 字、草稿残留和有限术语线索检查 | 权利要求文本 | `cn-patent-review-raw-report/v2` |
+| `cn-patent-specification-reviewer` | 定位说明书对权利要求特征的文本证据，并组织充分公开、支持和功能性限定的人工语义复核 | 说明书、权利要求特征 | 支持矩阵、说明书专项报告 |
+| `cn-patent-formalities-reviewer` | 文件组成、标题、摘要字数、章节、图号、附图标记及条件性程序事项检查 | 申请文件 manifest | 形式专项报告 |
+| `cn-patent-reviewer` | 编排三类原始检查器和独立语义审查，冻结输入、规则及前置流程证据 | 四文书、manifest、provenance 工件 | review bundle、整改顺序、独立验证报告 |
+| `cn-patent-diagram-generator` | 把 drawing brief v4、权利要求架构和特征台账转成可编辑 Draw.io 附图并进行图文一致性验收 | drawing brief、说明书、台账、架构合同 | `.drawio`、SVG/PNG、视觉复核及验证报告 |
 
-没有 EPO provider 时，范本选择仍可使用有来源的 IPC 缓存或候选输入，不会反向导入主项目。
+各 Skill 的名称均使用 Codex 要求的全小写 hyphen-case，`SKILL.md` frontmatter 已通过 Codex Skill 校验器。
 
-## 本地使用
+## 完整执行流程
 
-推荐将本仓库作为独立 Claude/Codex 插件加载，此时 `${CLAUDE_PLUGIN_ROOT}` 自动指向本仓库。
+```text
+技术材料或代码
+      │
+      ▼
+[1] 发明挖掘与技术特征结构化
+      │ technical-features.json
+      ▼
+[2] 检索式、目标 IPC、候选范本与用户确认
+      │ search-query / template-selection / stage2-gate
+      ▼
+[3] 区别特征台账与权利要求优先起草
+      │ feature-ledger v2
+      ▼
+[4] 数据流、方法—系统覆盖、异常出口复算
+      │
+      ▼
+[5] 权利要求架构门
+      │ 载体分工 / 父从权继承拓扑 / 方法步骤边界
+      ▼
+[6] 说明书、摘要与附图说明起草
+      │
+      ▼
+[7] drawing brief v4 → Draw.io 附图 → 视觉与图文一致性验收
+      │
+      ▼
+[8] 权利要求 / 说明书 / 形式原始检查
+      │
+      ▼
+[9] 独立语义审查 → review bundle → verifier
+      │
+      ▼
+[10] 可选 DOCX 组装 → 原生 OMML 公式 → 哈希新鲜度复验
+```
 
-使用 Skill Manager 安装 `skills/` 集合时，应同时设置：
+阶段之间只通过版本化 JSON、申请文件和哈希报告交接。权利要求、说明书、台账或图片发生变化时，下游架构、附图、综合审查和 DOCX 证据按 `skills/cn-patent-workflow/references/stage-map.md` 失效并重跑。
+
+## Linux 下的 Word 原生公式
+
+DOCX 公式不再依赖 Windows COM，也不再要求先用 Microsoft Word 执行 `OMaths.Add/BuildUp`。
+
+组装器现在直接生成 Office Math Markup Language：
+
+```xml
+<m:oMath>
+  <m:f>...</m:f>
+  <m:sSub>...</m:sSub>
+  <m:sSup>...</m:sSup>
+</m:oMath>
+```
+
+因此在 Linux、macOS 和 Windows 上均可生成可编辑的 Word 原生公式，支持当前申请文件使用的：
+
+- 行内和独立公式；
+- 上标、下标及上下标组合；
+- 分式；
+- 圆括号、方括号和花括号；
+- 函数调用、等式和常用运算符。
+
+默认 DOCX 交付只执行 ZIP/XML、分节、页眉、样式、`m:oMath` 对象和图片数量检查，不导出 PDF/PNG。
+
+用户明确要求视觉检查时：
+
+- Windows：使用 Microsoft Word 导出 PDF；
+- Linux/macOS：使用 LibreOffice headless 导出 PDF；
+- 两个平台均使用 `pdftoppm` 渲染逐页 PNG，并使用 `pdfinfo` 核对页数。
+
+Microsoft Word 只影响 Windows 下的分页和 PDF 渲染，不再是生成原生公式的必要条件。
+
+## DOCX 输入模板
+
+DOCX 组装仍要求案件根目录提供 `输出模版.docx`。模板必须包含五个分节及相应页眉，并提供权利要求自动编号、`Normal (Web)`、`Title`、`Heading 1`、`正文2`、`附图图号` 和 `Strong` 样式。仓库不会猜造客户专用模板。
+
+具体合同见：
+
+```text
+skills/cn-patent-application-creator/references/docx-assembly.md
+```
+
+## 运行依赖
+
+基础起草与审查脚本只使用 Python 标准库。安装器默认增加：
+
+- `python-docx`；
+- `lxml`；
+- `Pillow`；
+- Windows 平台上的 `pywin32`。
+
+按需外部能力：
+
+- Draw.io Desktop CLI 和 `drawio-skill`：生成及导出附图；
+- LibreOffice：Linux/macOS 视觉复核 PDF；
+- Poppler 的 `pdftoppm`、`pdfinfo`：逐页渲染及页数核对；
+- EPO OPS provider：自动补全候选专利 IPC；缺失时只能使用有来源的缓存或候选输入。
+
+## 开发环境
 
 ```bash
-export CLAUDE_PATENT_CREATOR_CN_ROOT=/path/to/claude-patent-creator-cn
-skill-manager install /path/to/claude-patent-creator-cn/skills
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev,docx]'
+.venv/bin/python -m pytest -q
+.venv/bin/python scripts/verify_package.py
 ```
 
-所有 Skill 路径均使用 `${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}`，因此插件安装和本地 Skill 链接两种方式都可运行。
+Windows PowerShell：
 
-## 验证
-
-```bash
-python3 scripts/verify_package.py
-python3 -m pytest -q
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,docx]"
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe scripts\verify_package.py
 ```
 
-## 生成质量门
+## 其他安装形态
 
-新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-claim-architecture/v1`、`cn-patent-drawing-brief/v4` 和 `cn-patent-drawing-visual-review/v2`。这些合同分别控制数据流与异常闭合、独权载体分工/父从权继承拓扑/方法步骤边界、流程图步骤同构与图文表达范围、最终 PNG 的实际视觉观察。DOCX 组装后使用 `verify_docx_assembly.py` 复算源文件、图片和输出哈希。旧版本仅用于历史案件回放。
+仓库同时保留 `.codex-plugin/plugin.json`，可作为 skills-only Codex Plugin 加入本地 Marketplace。默认推荐文件系统 Skill 模式，因为它允许 `$cn-patent-workflow` 作为单一入口逐阶段调用全部子 Skill。
+
+本项目不提供业务型 Slash Command。自然语言请求由 Skill description 或显式 `$cn-patent-workflow` 触发，确定性步骤由各 Skill 自带脚本执行。
+
+## 质量边界
+
+- 中国法规则绑定 `references/cn-legal-sources/` 中的本地法源；
+- 客观约束由脚本和 JSON 合同判定，语义判断不伪装成确定性结论；
+- 形式或结构检查通过不等于申请具备新颖性、创造性或可授权性；
+- DOCX 结构检查通过不等于已经完成逐页视觉复核；
+- 新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-claim-architecture/v1`、`cn-patent-drawing-brief/v4` 和 `cn-patent-drawing-visual-review/v2`。

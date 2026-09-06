@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VALIDATOR = ROOT / "skills/patent-diagram-generator-ZH/scripts/validate_drawing_brief.py"
+VALIDATOR = ROOT / "skills/cn-patent-diagram-generator/scripts/validate_drawing_brief.py"
 
 
 def digest(path: Path) -> str:

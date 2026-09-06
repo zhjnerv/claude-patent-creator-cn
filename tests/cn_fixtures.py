@@ -15,12 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 MODULE_PATHS = {
-    "contract": "skills/patent-reviewer-CN/scripts/cn_contract.py",
-    "orchestrator": "skills/patent-reviewer-CN/scripts/build_review_bundle.py",
-    "verifier": "skills/patent-reviewer-CN/scripts/verify_review_bundle.py",
-    "claims": "skills/patent-claims-analyzer-CN/scripts/check_claims_cn.py",
-    "specification": "skills/patent-specification-reviewer-CN/scripts/build_support_matrix_cn.py",
-    "formalities": "skills/patent-formalities-reviewer-CN/scripts/check_formalities_cn.py",
+    "contract": "skills/cn-patent-reviewer/scripts/cn_contract.py",
+    "orchestrator": "skills/cn-patent-reviewer/scripts/build_review_bundle.py",
+    "verifier": "skills/cn-patent-reviewer/scripts/verify_review_bundle.py",
+    "claims": "skills/cn-patent-claims-analyzer/scripts/check_claims_cn.py",
+    "specification": "skills/cn-patent-specification-reviewer/scripts/build_support_matrix_cn.py",
+    "formalities": "skills/cn-patent-formalities-reviewer/scripts/check_formalities_cn.py",
 }
 
 
@@ -54,6 +54,15 @@ FEATURES = [
     {"id": "F002", "text": "存储器"},
     {"id": "F003", "text": "调度算法"},
 ]
+
+PROVENANCE_FILES = {
+    "search-query": "search-query.json",
+    "template-candidates": "template-candidates.json",
+    "template-selection": "template-selection.json",
+    "stage2-gate": "stage2-gate.json",
+    "feature-ledger": "feature-ledger.json",
+    "claim-architecture": "claim-architecture.json",
+}
 
 
 def formalities_manifest() -> dict:
@@ -104,6 +113,7 @@ def build_application(
     specification: str | None = None,
     features: list | None = None,
     manifest: dict | None = None,
+    provenance_artifacts: object | None = None,
     application_id: str = "CN-FIXTURE-001",
 ) -> Path:
     """在目录中写出一套真实 UTF-8 无 BOM 申请文件，返回 prepare 输入路径。"""
@@ -113,15 +123,29 @@ def build_application(
     write_utf8(directory / "specification.txt", SPECIFICATION_TEXT if specification is None else specification)
     write_json(directory / "features.json", FEATURES if features is None else features)
     write_json(directory / "formalities-manifest.json", manifest if manifest is not None else formalities_manifest())
+    if provenance_artifacts is None:
+        provenance_artifacts = [
+            {"artifact_id": artifact_id, "path": filename}
+            for artifact_id, filename in PROVENANCE_FILES.items()
+        ]
+    for artifact_id, filename in PROVENANCE_FILES.items():
+        write_json(directory / filename, {
+            "schema_version": "cn-fixture-provenance/v1",
+            "artifact_id": artifact_id,
+            "application_id": application_id,
+        })
     prepare_input = directory / "prepare-input.json"
-    write_json(prepare_input, {
+    declaration = {
         "schema_version": "cn-patent-review-prepare-input/v2",
         "application_id": application_id,
         "claims": "claims.txt",
         "specification": "specification.txt",
         "features": "features.json",
         "formalities_manifest": "formalities-manifest.json",
-    })
+    }
+    if provenance_artifacts is not None:
+        declaration["provenance_artifacts"] = provenance_artifacts
+    write_json(prepare_input, declaration)
     return prepare_input
 
 

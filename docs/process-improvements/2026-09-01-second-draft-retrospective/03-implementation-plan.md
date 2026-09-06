@@ -9,10 +9,10 @@
 
 ## P1：工作流接线
 
-1. 修改 `patent-application-creator-CN/SKILL.md`，把 v2 台账和数据流复算门插入权利要求与说明书阶段。
-2. 修改 `patent-diagram-generator-ZH/SKILL.md` 和参考文档，要求 v3 合同、v2 视觉记录。
+1. 修改 `cn-patent-application-creator/SKILL.md`，把 v2 台账和数据流复算门插入权利要求与说明书阶段。
+2. 修改 `cn-patent-diagram-generator/SKILL.md` 和参考文档，要求 v3 合同、v2 视觉记录。
 3. 修改总入口 `cn-patent-workflow` 的阶段图和 `stage-map.md`，明确失效传播。
-4. 修改 `patent-reviewer-CN/references/cross-document-rules.md`，将图文表达范围、动作阶段、异常闭合列为语义审查输入。
+4. 修改 `cn-patent-reviewer/references/cross-document-rules.md`，将图文表达范围、动作阶段、异常闭合列为语义审查输入。
 5. 修改 README，公开新的生成闭环和报告边界。
 
 ## P2：验证与收尾
@@ -27,28 +27,28 @@
 
 ### 新增
 
-- `skills/patent-application-creator-CN/references/feature-ledger-schema-v2.json`
-- `skills/patent-application-creator-CN/scripts/verify_docx_assembly.py`
-- `skills/patent-diagram-generator-ZH/references/patent-drawing-brief-schema-v3.json`
-- `skills/patent-diagram-generator-ZH/references/visual-review-schema-v2.json`
+- `skills/cn-patent-application-creator/references/feature-ledger-schema-v2.json`
+- `skills/cn-patent-application-creator/scripts/verify_docx_assembly.py`
+- `skills/cn-patent-diagram-generator/references/patent-drawing-brief-schema-v3.json`
+- `skills/cn-patent-diagram-generator/references/visual-review-schema-v2.json`
 - `tests/test_cn_feature_ledger_v2.py`
 - `tests/test_cn_docx_evidence_freshness.py`
 - 本目录的分析、计划和验证记录
 
 ### 修改
 
-- `skills/patent-application-creator-CN/scripts/build_feature_ledger.py`
-- `skills/patent-application-creator-CN/scripts/assemble_application_docx.py`
-- `skills/patent-application-creator-CN/SKILL.md`
-- `skills/patent-application-creator-CN/references/docx-assembly.md`
-- `skills/patent-diagram-generator-ZH/scripts/validate_drawing_brief.py`
-- `skills/patent-diagram-generator-ZH/scripts/verify_patent_drawings.py`
-- `skills/patent-diagram-generator-ZH/SKILL.md`
-- `skills/patent-diagram-generator-ZH/references/drawio-execution.md`
-- `skills/patent-diagram-generator-ZH/references/quality-gates.md`
+- `skills/cn-patent-application-creator/scripts/build_feature_ledger.py`
+- `skills/cn-patent-application-creator/scripts/assemble_application_docx.py`
+- `skills/cn-patent-application-creator/SKILL.md`
+- `skills/cn-patent-application-creator/references/docx-assembly.md`
+- `skills/cn-patent-diagram-generator/scripts/validate_drawing_brief.py`
+- `skills/cn-patent-diagram-generator/scripts/verify_patent_drawings.py`
+- `skills/cn-patent-diagram-generator/SKILL.md`
+- `skills/cn-patent-diagram-generator/references/drawio-execution.md`
+- `skills/cn-patent-diagram-generator/references/quality-gates.md`
 - `skills/cn-patent-workflow/SKILL.md`
 - `skills/cn-patent-workflow/references/stage-map.md`
-- `skills/patent-reviewer-CN/references/cross-document-rules.md`
+- `skills/cn-patent-reviewer/references/cross-document-rules.md`
 - `tests/test_patent_diagram_generator_zh_v2.py`
 - `scripts/verify_package.py`
 - `README.md`

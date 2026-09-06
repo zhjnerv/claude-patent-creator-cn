@@ -42,12 +42,12 @@ FORBIDDEN_IMPORTS = (
 )
 
 CN_SCRIPT_PATHS = (
-    "skills/patent-claims-analyzer-CN/scripts/check_claims_cn.py",
-    "skills/patent-specification-reviewer-CN/scripts/build_support_matrix_cn.py",
-    "skills/patent-formalities-reviewer-CN/scripts/check_formalities_cn.py",
-    "skills/patent-reviewer-CN/scripts/cn_contract.py",
-    "skills/patent-reviewer-CN/scripts/build_review_bundle.py",
-    "skills/patent-reviewer-CN/scripts/verify_review_bundle.py",
+    "skills/cn-patent-claims-analyzer/scripts/check_claims_cn.py",
+    "skills/cn-patent-specification-reviewer/scripts/build_support_matrix_cn.py",
+    "skills/cn-patent-formalities-reviewer/scripts/check_formalities_cn.py",
+    "skills/cn-patent-reviewer/scripts/cn_contract.py",
+    "skills/cn-patent-reviewer/scripts/build_review_bundle.py",
+    "skills/cn-patent-reviewer/scripts/verify_review_bundle.py",
 )
 
 # 生产链禁止出现的结论性措辞：总体通过、可申报、授权预测和专业确认。
@@ -316,6 +316,110 @@ class StaleEvidenceTests(ChainTestCase):
         )
         self.assertEqual(self.run_quiet(self.chain.verify)[0], 3)
         self.assertTrue(any("独立复算" in item["message"] for item in self.chain.verification()["errors"]))
+
+    def test_changed_provenance_artifact_invalidates_finalize(self):
+        target = self.chain.application_directory / "search-query.json"
+        target.write_bytes((target.read_bytes() + b"\n").decode("utf-8").encode("utf-8"))
+        code, stderr = self.run_quiet(self.chain.finalize)
+        self.assertEqual(code, 3)
+        self.assertIn("冻结证据失效", stderr)
+        self.assertFalse(self.chain.bundle_path.exists())
+
+
+class ProvenanceArtifactTests(ChainTestCase):
+    """前置检索、范本、阶段门、台账和架构证据必须进入可复算绑定链。"""
+
+    def test_provenance_artifacts_are_bound_in_manifest_bundle_and_prepare_id(self):
+        self.assertEqual(self.run_quiet(self.chain.prepare)[0], 0)
+        manifest = fx.read_json(self.chain.workspace / "prepare-manifest.json")
+        self.assertEqual(
+            {item["artifact_id"] for item in manifest["provenance_artifacts"]},
+            set(fx.PROVENANCE_FILES),
+        )
+        self.assertIn("provenance_set_sha256", manifest["evidence_binding"])
+        template = fx.read_json(self.chain.template_path)
+        self.assertEqual(template["evidence_binding"], manifest["evidence_binding"])
+        self.assertEqual(template["provenance_artifacts"], manifest["provenance_artifacts"])
+
+        self.assertEqual(self.run_quiet(self.chain.finalize)[0], 0)
+        bundle = fx.read_json(self.chain.bundle_path)
+        self.assertEqual(bundle["provenance_artifacts"], manifest["provenance_artifacts"])
+        self.assertEqual(bundle["evidence_binding"], manifest["evidence_binding"])
+        self.assertEqual(self.run_quiet(self.chain.verify)[0], 0)
+        self.assertEqual(self.chain.verification()["errors"], [])
+
+    def test_provenance_declaration_mapping_is_normalized(self):
+        chain = fx.Chain(
+            Path(self.temporary.name) / "mapping",
+            provenance_artifacts=fx.PROVENANCE_FILES,
+        )
+        self.assertEqual(self.run_quiet(chain.prepare)[0], 0)
+        manifest = fx.read_json(chain.workspace / "prepare-manifest.json")
+        self.assertEqual(len(manifest["provenance_artifacts"]), len(fx.PROVENANCE_FILES))
+
+    def test_provenance_path_escape_is_rejected_before_reports(self):
+        chain = fx.Chain(
+            Path(self.temporary.name) / "escape",
+            provenance_artifacts=[{"artifact_id": "outside", "path": "../outside.json"}],
+        )
+        code, stderr = self.run_quiet(chain.prepare)
+        self.assertEqual(code, 3)
+        self.assertIn("越出输入目录", stderr)
+        self.assertFalse((chain.workspace / "raw").exists())
+
+    def test_duplicate_provenance_id_is_rejected(self):
+        chain = fx.Chain(
+            Path(self.temporary.name) / "duplicate",
+            provenance_artifacts=[
+                {"artifact_id": "same", "path": "search-query.json"},
+                {"artifact_id": "same", "path": "template-candidates.json"},
+            ],
+        )
+        code, stderr = self.run_quiet(chain.prepare)
+        self.assertEqual(code, 3)
+        self.assertIn("重复 artifact_id", stderr)
+
+    def test_verifier_rejects_bundle_provenance_different_from_manifest(self):
+        self.run_quiet(self.chain.prepare)
+        self.run_quiet(self.chain.finalize)
+        self.chain.rewrite_json(
+            self.chain.bundle_path,
+            lambda bundle: bundle["provenance_artifacts"].pop(),
+        )
+        self.assertEqual(self.run_quiet(self.chain.verify)[0], 3)
+        self.assertTrue(any("provenance_artifacts" in item["message"] for item in self.chain.verification()["errors"]))
+
+    def test_verifier_rejects_provenance_binding_tamper(self):
+        self.run_quiet(self.chain.prepare)
+        self.run_quiet(self.chain.finalize)
+        self.chain.rewrite_json(
+            self.chain.bundle_path,
+            lambda bundle: bundle["evidence_binding"].update(provenance_set_sha256="0" * 64),
+        )
+        self.assertEqual(self.run_quiet(self.chain.verify)[0], 3)
+        self.assertTrue(any("provenance_set_sha256" in item["message"] for item in self.chain.verification()["errors"]))
+
+    def test_semantic_input_provenance_must_match_prepare_manifest(self):
+        self.run_quiet(self.chain.prepare)
+        template = fx.read_json(self.chain.template_path)
+        template["provenance_artifacts"].pop()
+        stale = self.chain.root / "stale-semantic-input.json"
+        stale.write_bytes(json.dumps(template, ensure_ascii=False, indent=2).encode("utf-8") + b"\n")
+        code, stderr = self.run_quiet(self.chain.finalize, review_input=stale)
+        self.assertEqual(code, 3)
+        self.assertIn("provenance_artifacts", stderr)
+
+    def test_verifier_malformed_provenance_id_returns_structured_error(self):
+        self.run_quiet(self.chain.prepare)
+        self.run_quiet(self.chain.finalize)
+        self.chain.rewrite_json(
+            self.chain.bundle_path,
+            lambda bundle: bundle["provenance_artifacts"][0].update(artifact_id=[]),
+        )
+        code, _ = self.run_quiet(self.chain.verify)
+        self.assertEqual(code, 3)
+        errors = self.chain.verification()["errors"]
+        self.assertTrue(any("artifact_id" in item["message"] for item in errors))
 
 
 class ContractVersusApplicationDefectTests(ChainTestCase):

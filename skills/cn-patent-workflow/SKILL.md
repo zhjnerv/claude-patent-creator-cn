@@ -8,6 +8,25 @@ allowed-tools: Bash, Read, Write
 
 本 Skill 只负责路由、阶段状态和交接，不复制各阶段的法律规则或操作细节。
 
+## 运行根目录
+
+按以下优先级确定项目根目录，并在本次任务的每条命令中使用同一个值：
+
+1. `CN_PATENT_CREATOR_ROOT`；
+2. 兼容变量 `CLAUDE_PATENT_CREATOR_CN_ROOT`；
+3. 插件环境的 `CLAUDE_PLUGIN_ROOT`；
+4. Codex Skill 一键安装默认目录 `${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn`。
+
+根目录必须同时存在 `.codex-plugin/plugin.json`、`skills/` 和
+`references/cn-legal-sources/source-index.json`，否则立即停止，不得猜测路径。
+一键安装后的 Python 解释器位于根目录 `.venv`；涉及 DOCX 时必须使用该解释器。
+
+## 子 Skill 调用方式
+
+“调用子 Skill”不是复制其规则正文。路由确定后，读取
+`<项目根目录>/skills/<子 Skill 名>/SKILL.md`，再严格按该文件执行；完成当前阶段后回到
+本路由检查交接物和下一阶段。完整流程允许依次调用多个子 Skill，但任一时刻只加载当前阶段。
+
 ## 第一原则
 
 1. 先判断用户当前要完成的唯一阶段，不因“中国专利”四个字加载整个工作流。
@@ -19,13 +38,13 @@ allowed-tools: Bash, Read, Write
 
 ## 路由
 
-- 完整起草、区别特征表、阶段门、范本风格：调用 `patent-application-creator-CN`。
-- 权利要求专项检查：调用 `patent-claims-analyzer-CN`。
-- 说明书充分公开和支持：调用 `patent-specification-reviewer-CN`。
-- 文件形式与完整性：调用 `patent-formalities-reviewer-CN`。
-- 完整申请审查和证据绑定：调用 `patent-reviewer-CN`。
-- 中国专利说明书附图：调用 `patent-diagram-generator-ZH`。
-- DOCX 只在用户要求 Word 或案件存在指定模板时，读取 `patent-application-creator-CN/references/docx-assembly.md`。
+- 完整起草、区别特征表、阶段门、范本风格：调用 `cn-patent-application-creator`。
+- 权利要求专项检查：调用 `cn-patent-claims-analyzer`。
+- 说明书充分公开和支持：调用 `cn-patent-specification-reviewer`。
+- 文件形式与完整性：调用 `cn-patent-formalities-reviewer`。
+- 完整申请审查和证据绑定：调用 `cn-patent-reviewer`。
+- 中国专利说明书附图：调用 `cn-patent-diagram-generator`。
+- DOCX 只在用户要求 Word 或案件存在指定模板时，读取 `cn-patent-application-creator/references/docx-assembly.md`。
 
 ## 连续工作
 

@@ -26,7 +26,7 @@
 
 - 安全扫描：无 critical/high；现有外部进程调用和环境变量定位被标记为 medium/low 提醒，均使用参数数组且属于既有 Draw.io/Word/EPO provider 能力。
 - Instruction Stability 静态审查：`NOT_VERIFIED`。原因是缺少候选外签名基线、held-out 正反例和三轮真实产物回执；这类外部评估证据未在本次代码修改中伪造。
-- 已同步 `patent-diagram-generator-ZH` 的 Skill 版本与稳定性合同版本为 `3.0.0`。
+- 已同步 `cn-patent-diagram-generator` 的 Skill 版本与稳定性合同版本为 `3.0.0`。
 
 ## 使用边界
 

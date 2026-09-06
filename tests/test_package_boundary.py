@@ -31,12 +31,12 @@ def test_orchestrator_is_lightweight_and_routes_by_stage():
     text = (ROOT / "skills" / "cn-patent-workflow" / "SKILL.md").read_text(encoding="utf-8")
     assert len(text.splitlines()) < 100
     for skill in (
-        "patent-application-creator-CN",
-        "patent-reviewer-CN",
-        "patent-claims-analyzer-CN",
-        "patent-specification-reviewer-CN",
-        "patent-formalities-reviewer-CN",
-        "patent-diagram-generator-ZH",
+        "cn-patent-application-creator",
+        "cn-patent-reviewer",
+        "cn-patent-claims-analyzer",
+        "cn-patent-specification-reviewer",
+        "cn-patent-formalities-reviewer",
+        "cn-patent-diagram-generator",
     ):
         assert skill in text
     assert "不启动 MCP Server" in text

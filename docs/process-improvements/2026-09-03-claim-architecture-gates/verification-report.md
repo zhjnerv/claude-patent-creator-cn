@@ -39,8 +39,8 @@
 
 已同步：
 
-- `patent-application-creator-CN`；
-- `patent-diagram-generator-ZH` 4.0.0；
+- `cn-patent-application-creator`；
+- `cn-patent-diagram-generator` 4.0.0；
 - `cn-patent-workflow`及阶段路由；
 - 权利要求规则矩阵、综合审查实体规则和跨文件规则；
 - README、CHANGELOG、质量门和Draw.io执行规则。
@@ -72,8 +72,8 @@
 
 ## Skill Lint边界
 
-- `patent-application-creator-CN`：Instruction Stability为`NOT_VERIFIED`，原因是该大型既有Skill尚无覆盖全部历史硬约束的追踪合同、候选外基线和三轮签名产物。不能把本次领域测试通过扩大为整个Skill多轮稳定。
-- `patent-diagram-generator-ZH`：v4稳定性合同结构可解析，新增步骤同构约束具有正例、mutation和历史反例；仍因缺少候选外独立硬约束基线而为`NOT_VERIFIED`。
+- `cn-patent-application-creator`：Instruction Stability为`NOT_VERIFIED`，原因是该大型既有Skill尚无覆盖全部历史硬约束的追踪合同、候选外基线和三轮签名产物。不能把本次领域测试通过扩大为整个Skill多轮稳定。
+- `cn-patent-diagram-generator`：v4稳定性合同结构可解析，新增步骤同构约束具有正例、mutation和历史反例；仍因缺少候选外独立硬约束基线而为`NOT_VERIFIED`。
 - 上述`NOT_VERIFIED`是外部证据闭环不足，不是领域验证器失败。领域脚本、回归测试、包边界和静态Harness审查均已通过。
 
 ## 证据边界

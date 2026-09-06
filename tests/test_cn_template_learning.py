@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "skills" / "patent-application-creator-CN" / "scripts"
-REFERENCES = ROOT / "skills" / "patent-application-creator-CN" / "references"
+SCRIPTS = ROOT / "skills" / "cn-patent-application-creator" / "scripts"
+REFERENCES = ROOT / "skills" / "cn-patent-application-creator" / "references"
 SEARCH_SCRIPT = SCRIPTS / "generate_search_query.py"
 ANALYZER_SCRIPT = SCRIPTS / "analyze_template_style.py"
 APPLICATOR_SCRIPT = SCRIPTS / "style_applicator.py"
@@ -213,7 +213,7 @@ def test_template_style_schema_is_machine_readable_utf8_json():
 
 
 def test_skill_and_orchestrator_bind_template_learning_handoff():
-    skill = (ROOT / "skills" / "patent-application-creator-CN" / "SKILL.md").read_text(
+    skill = (ROOT / "skills" / "cn-patent-application-creator" / "SKILL.md").read_text(
         encoding="utf-8"
     )
     workflow = (ROOT / "skills" / "cn-patent-workflow" / "SKILL.md").read_text(encoding="utf-8")
@@ -234,7 +234,7 @@ def test_skill_and_orchestrator_bind_template_learning_handoff():
     ):
         assert required in skill
     assert "检索与范本" in workflow
-    assert "patent-application-creator-CN" in workflow
+    assert "cn-patent-application-creator" in workflow
     for artifact in (
         "search-query.json",
         "template-selection.json",
@@ -245,7 +245,7 @@ def test_skill_and_orchestrator_bind_template_learning_handoff():
 
 
 def test_cn_creator_delivery_scope_is_four_technical_documents_only():
-    skill = (ROOT / "skills" / "patent-application-creator-CN" / "SKILL.md").read_text(
+    skill = (ROOT / "skills" / "cn-patent-application-creator" / "SKILL.md").read_text(
         encoding="utf-8"
     )
     workflow = (ROOT / "skills" / "cn-patent-workflow" / "SKILL.md").read_text(encoding="utf-8")

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "skills" / "patent-application-creator-CN" / "scripts"
+SCRIPTS = ROOT / "skills" / "cn-patent-application-creator" / "scripts"
 RANKER = SCRIPTS / "rank_template_candidates.py"
 GATE = SCRIPTS / "check_stage_gate.py"
 
@@ -243,7 +243,7 @@ def test_stage_gate_v2_recomputes_scores_and_requires_epo_first(tmp_path):
 
 
 def test_new_ipc_contract_schemas_are_utf8_json():
-    references = ROOT / "skills" / "patent-application-creator-CN" / "references"
+    references = ROOT / "skills" / "cn-patent-application-creator" / "references"
     expectations = {
         "template-candidates-schema.json": "cn-patent-template-candidates/v1",
         "template-selection-schema.json": "cn-patent-template-selection/v1",

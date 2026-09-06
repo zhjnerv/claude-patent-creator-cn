@@ -15,7 +15,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills/patent-claims-analyzer-CN/scripts/check_claims_cn.py"
+SCRIPT = ROOT / "skills/cn-patent-claims-analyzer/scripts/check_claims_cn.py"
 
 
 def load_script():
@@ -46,6 +46,7 @@ class ClaimsCheckerV2Tests(unittest.TestCase):
         self.assertEqual(report["resource_usage"]["finding_count"], len(report["findings"]))
         self.assertEqual(report["resource_usage"]["gap_count"], len(report["gaps"]))
         self.assertGreater(report["resource_usage"]["output_bytes"], 0)
+        self.assertIn("claim-length-policy", {item["artifact_id"] for item in report["rule_sources"]})
 
     def test_findings_and_gaps_have_stable_exact_contract_fields(self):
         report = checker.analyze_claims("1. 一种装置，包括【待填：参数】。")
@@ -59,6 +60,33 @@ class ClaimsCheckerV2Tests(unittest.TestCase):
         self.assertEqual(set(gap), {"gap_id", "check_id", "rule_id", "target_id", "category", "reason", "evidence", "blocks_assessment"})
         repeat = checker.analyze_claims("1. 一种装置，包括【待填：参数】。")
         self.assertEqual(report["findings"][0]["finding_id"], repeat["findings"][0]["finding_id"])
+
+    def test_word_compatible_count_matches_boundary_and_formula_rules(self):
+        self.assertEqual(checker.word_compatible_claim_count("甲" * 600), 600)
+        self.assertEqual(checker.word_compatible_claim_count("data processing 123"), 3)
+        self.assertEqual(checker.word_compatible_claim_count("data-processing 3.14"), 2)
+        self.assertEqual(checker.word_compatible_claim_count("甲，乙；丙。"), 3)
+        self.assertEqual(checker.word_compatible_claim_count("$Q_{CT}=C(P,a_i)$"), 1)
+        self.assertEqual(checker.word_compatible_claim_count(r"\[Q_{CT}=C(P,a_i)\]"), 1)
+        self.assertEqual(checker.word_compatible_claim_count("```math\nQ_{CT}=C(P,a_i)\n```"), 1)
+        self.assertEqual(checker.word_compatible_claim_count("∑"), 1)
+
+    def test_single_claim_word_count_limit_accepts_600_and_rejects_601(self):
+        accepted = checker.analyze_claims("1. " + "甲" * 599 + "$Q_{CT}=C(P,a_i)$")
+        self.assertFalse(any(item["rule_id"] == "CN-CLAIM-LENGTH-001" for item in accepted["findings"]))
+        accepted_check = next(item for item in accepted["checks_performed"] if item["check_id"] == "claim-word-count")
+        self.assertEqual(accepted_check["status"], "COMPLETED")
+        self.assertEqual(accepted_check["finding_ids"], [])
+
+        rejected = checker.analyze_claims("1. " + "甲" * 600 + "$Q_{CT}=C(P,a_i)$")
+        finding = next(item for item in rejected["findings"] if item["rule_id"] == "CN-CLAIM-LENGTH-001")
+        self.assertEqual(finding["status"], "DETERMINISTIC_FAIL")
+        self.assertIn("Word 口径字数=601", finding["evidence"][0]["excerpt"])
+        self.assertEqual(finding["target_id"], "claim-1")
+
+    def test_claim_number_is_excluded_from_word_count(self):
+        report = checker.analyze_claims("999999. " + "甲" * 600)
+        self.assertFalse(any(item["rule_id"] == "CN-CLAIM-LENGTH-001" for item in report["findings"]))
 
     def test_reference_leads_only_create_candidate_or_unresolved_states(self):
         candidate = checker.analyze_claims("1. 一种装置。\n2. 根据权利要求1所述的装置。")
@@ -143,6 +171,16 @@ class ClaimsCheckerV2Tests(unittest.TestCase):
             input_path.write_bytes(b"1. " + b"x" * (checker.MAX_INPUT_BYTES + 1))
             self.assertEqual(checker.main(["--input", str(input_path), "--output", str(output_path)]), 4)
             self.assertFalse(output_path.exists())
+
+    def test_cli_returns_two_when_single_claim_exceeds_600_words(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            input_path = root / "claims.txt"
+            output_path = root / "report.json"
+            input_path.write_text("1. " + "甲" * 601, encoding="utf-8")
+            self.assertEqual(checker.main(["--input", str(input_path), "--output", str(output_path)]), 2)
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertTrue(any(item["rule_id"] == "CN-CLAIM-LENGTH-001" for item in report["findings"]))
 
     def test_cli_writes_atomic_independent_raw_report_and_preserves_input(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

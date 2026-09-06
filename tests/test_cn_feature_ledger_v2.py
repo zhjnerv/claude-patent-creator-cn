@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills/patent-application-creator-CN/scripts/build_feature_ledger.py"
+SCRIPT = ROOT / "skills/cn-patent-application-creator/scripts/build_feature_ledger.py"
 
 
 def write_json(path: Path, payload: dict) -> None:

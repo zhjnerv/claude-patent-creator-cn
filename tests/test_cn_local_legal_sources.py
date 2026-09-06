@@ -14,13 +14,13 @@ SOURCE_PATHS = (
     SHARED_ROOT / "审查指南2026MD" / "guide-full.md",
 )
 CN_SKILLS = (
-    "patent-application-creator-CN",
-    "patent-claims-analyzer-CN",
-    "patent-formalities-reviewer-CN",
-    "patent-reviewer-CN",
-    "patent-specification-reviewer-CN",
+    "cn-patent-application-creator",
+    "cn-patent-claims-analyzer",
+    "cn-patent-formalities-reviewer",
+    "cn-patent-reviewer",
+    "cn-patent-specification-reviewer",
 )
-RUNTIME_ROOT = "${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/"
+RUNTIME_ROOT = "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}/references/cn-legal-sources/"
 
 
 class LocalLegalSourcesTests(unittest.TestCase):
