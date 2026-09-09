@@ -208,22 +208,39 @@ class ClaimsAnalyzer:
 
         return claims
 
+    _DEPENDENCY_RE = re.compile(
+        r"^\s*(?:根据|按照|如)\s*权利要求\s*"
+        r"(?P<refs>[0-9０-９、,，或和至到\-—~～]+?)"
+        r"(?:中的)?(?:任一项)?\s*所述"
+    )
+
     def _is_dependent_claim(self, text: str) -> bool:
-        """判断是否为从属权利要求"""
-        # 从属标记：根据权利要求N所述的...
-        return bool(re.search(r'根据权利要求\s*\d+(?:、\d+)*(?:或\d+)?\s*所述', text))
+        """判断是否为从属权利要求。
+
+        中国申请文件中常见“根据权利要求…”“如权利要求…”和
+        “按照权利要求…”三种起始句式。只在权利要求开头识别，避免把独立
+        装置权利要求中“包括权利要求1-3任一项所述组件”误判为从属项。
+        """
+
+        return bool(self._DEPENDENCY_RE.search(text))
 
     def _extract_references(self, text: str) -> list[int]:
-        """提取权利要求引用的其他权利要求号"""
-        refs = []
-        pattern = r'根据权利要求\s*([\d、或]+)\s*所述'
-        match = re.search(pattern, text)
-        if match:
-            ref_str = match.group(1)
-            # 提取所有数字
-            numbers = re.findall(r'\d+', ref_str)
-            refs = [int(n) for n in numbers]
-        return refs
+        """提取从属权利要求引用号，并展开“1-3”“1至3”范围。"""
+
+        match = self._DEPENDENCY_RE.search(text)
+        if not match:
+            return []
+        trans = str.maketrans("０１２３４５６７８９", "0123456789")
+        clause = match.group("refs").translate(trans)
+        refs: set[int] = set()
+        for start, end in re.findall(r"(\d+)\s*(?:-|—|~|～|至|到)\s*(\d+)", clause):
+            left, right = int(start), int(end)
+            refs.update(range(min(left, right), max(left, right) + 1))
+        clause_without_ranges = re.sub(
+            r"\d+\s*(?:-|—|~|～|至|到)\s*\d+", "", clause
+        )
+        refs.update(int(value) for value in re.findall(r"\d+", clause_without_ranges))
+        return sorted(refs)
 
     def _detect_dependency_pattern(self, claims: list[dict]) -> str:
         """检测引用模式

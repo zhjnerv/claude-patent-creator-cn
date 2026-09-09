@@ -254,3 +254,17 @@ def test_new_ipc_contract_schemas_are_utf8_json():
         raw = (references / name).read_bytes()
         assert not raw.startswith(b"\xef\xbb\xbf")
         assert json.loads(raw.decode("utf-8"))["$id"] == schema_id
+
+
+def test_stage_gate_accepts_concise_verbatim_user_authorization(tmp_path):
+    """“同意”“是”等简短原话仍是有效授权，不得由字符数门槛否定。"""
+    import importlib.util
+
+    script = ROOT / "skills/cn-patent-application-creator/scripts/check_stage_gate.py"
+    spec = importlib.util.spec_from_file_location("stage_gate_concise_quote", script)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    assert module.require_authorization(
+        {"user_quote": "同意", "granted_at": "2026-09-08"}, "范本确认"
+    ) == "同意"

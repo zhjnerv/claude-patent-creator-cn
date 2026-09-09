@@ -257,3 +257,33 @@ def test_cn_creator_delivery_scope_is_four_technical_documents_only():
     assert "不属于本技能交付范围" in skill
     assert "DOCX" in workflow
     assert "Slash Command" in (ROOT / "README.md").read_text(encoding="utf-8")
+
+
+def test_analyzer_recognizes_ru_and_range_dependency_phrases(tmp_path):
+    claims = tmp_path / "claims.txt"
+    specification = tmp_path / "specification.txt"
+    guide = tmp_path / "guide.json"
+    claims.write_text(
+        "1. 一种冷镦机顶出机构，包括凸轮和摇臂。\n"
+        "2. 如权利要求1所述的冷镦机顶出机构，其特征在于，包括调节盘。\n"
+        "3. 按照权利要求1或2所述的冷镦机顶出机构，其特征在于，包括挡销。\n"
+        "4. 根据权利要求1-3任一项所述的冷镦机顶出机构，其特征在于，包括弹簧。\n",
+        encoding="utf-8",
+    )
+    specification.write_text(
+        "技术领域\n冷镦设备。\n背景技术\n现有机构。\n发明内容\n提供顶出机构。\n"
+        "附图说明\n图1为结构图。\n具体实施方式\n凸轮驱动摇臂。\n",
+        encoding="utf-8",
+    )
+    result = _run(
+        ANALYZER_SCRIPT,
+        "--patent-number", "CNTEST",
+        "--claims", str(claims),
+        "--specification", str(specification),
+        "--output", str(guide),
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(guide.read_text(encoding="utf-8"))
+    assert payload["claims_style"]["independent_claims_count"] == 1
+    assert payload["claims_style"]["dependent_claims_count"] == 3
+    assert payload["claims_style"]["total_claims"] == 4

@@ -83,8 +83,8 @@ def require_authorization(block: Any, label: str) -> str:
     if not isinstance(block, dict):
         raise GateError(f"{label}必须提供 user_authorization 对象")
     quote = block.get("user_quote")
-    if not isinstance(quote, str) or len(quote.strip()) < 4:
-        raise GateError(f"{label}的 user_authorization.user_quote 必须是用户原话（至少 4 个字符）")
+    if not isinstance(quote, str) or not quote.strip():
+        raise GateError(f"{label}的 user_authorization.user_quote 必须是非空的用户原话")
     granted_at = block.get("granted_at")
     if not isinstance(granted_at, str) or not granted_at.strip():
         raise GateError(f"{label}的 user_authorization.granted_at 必须提供授权日期")
