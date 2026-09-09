@@ -17,6 +17,16 @@ REQUIRED_SKILLS = {
     "cn-patent-diagram-generator",
 }
 FORBIDDEN_TOP_LEVEL = {"mcp_server", "commands"}
+IGNORED_SCAN_PARTS = {
+    ".git",
+    ".pytest_cache",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".local-case-archive",
+    "claude_patent_creator_cn.egg-info",
+}
+
 FORBIDDEN_DEPENDENCIES = {
     "torch",
     "sentence-transformers",
@@ -59,7 +69,7 @@ def main() -> int:
             relative = path.relative_to(ROOT)
         except ValueError:
             continue
-        if ".git" in relative.parts or ".pytest_cache" in relative.parts:
+        if any(part in IGNORED_SCAN_PARTS for part in relative.parts):
             continue
         if path.suffix == ".pyc" and "__pycache__" not in path.parts:
             # __pycache__ 是 Python 运行期字节码缓存目录（.gitignore 已排除），

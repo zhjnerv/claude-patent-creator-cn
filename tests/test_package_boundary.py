@@ -50,3 +50,9 @@ def test_legal_sources_have_topic_router():
     assert payload["policy"]["default"] == "load_topic_files_only"
     assert "claims_and_support" in payload["topics"]
     assert "subject_matter_and_computer_programs" in payload["topics"]
+
+
+def test_package_verifier_ignores_local_case_archive():
+    script = (ROOT / "scripts/verify_package.py").read_text(encoding="utf-8")
+    assert '".local-case-archive"' in script
+    assert "IGNORED_SCAN_PARTS" in script
