@@ -3,7 +3,7 @@
   "status": "FAIL",
   "errors": [
     {
-      "code": "DRAWING-VISUAL"
+      "code": "DRAWING-EXCESSIVE-MARGIN"
     }
   ],
   "brief_validation": {
@@ -30,11 +30,11 @@
         "exit_code": 0
       },
       "visual_review": {
-        "approved": false,
+        "approved": true,
         "checks": {
           "text_legible": true,
           "no_text_overlap": true,
-          "no_edge_crossing": false,
+          "no_edge_crossing": true,
           "no_edge_through_node": true,
           "no_arrow_ambiguity": true,
           "labels_adjacent": true,
@@ -44,7 +44,7 @@
           "restrained_color": false,
           "no_unnecessary_detours": true,
           "consistent_typography": true,
-          "balanced_spacing": false,
+          "balanced_spacing": true,
           "clear_visual_hierarchy": true,
           "formal_patent_style": true,
           "node_text_proportionate": true,
@@ -57,11 +57,11 @@
           300.0,
           300.0
         ],
-        "maximum_margin": 10,
+        "maximum_margin": 240,
         "margins": {
-          "left": 10,
+          "left": 240,
           "top": 10,
-          "right": 10,
+          "right": 200,
           "bottom": 10
         }
       }

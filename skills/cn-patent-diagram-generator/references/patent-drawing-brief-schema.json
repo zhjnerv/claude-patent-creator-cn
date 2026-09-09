@@ -69,15 +69,19 @@
         "figure_number_on_canvas",
         "edge_labels_allowed",
         "annotation_nodes_may_be_edge_endpoints",
+        "separate_relation_label_nodes_allowed",
+        "native_edge_labels_required",
         "official_drawio_export_required",
-        "visual_review_required"
+        "visual_review_required",
+        "node_text_policy",
+        "png_margin_policy"
       ],
       "properties": {
         "figure_number_on_canvas": {
           "const": false
         },
         "edge_labels_allowed": {
-          "const": false
+          "const": true
         },
         "annotation_nodes_may_be_edge_endpoints": {
           "const": false
@@ -147,6 +151,119 @@
             },
             "palette_asset": {
               "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "native_edge_labels_required": {
+          "const": true
+        },
+        "separate_relation_label_nodes_allowed": {
+          "const": false
+        },
+        "node_text_policy": {
+          "type": "object",
+          "required": [
+            "reference_page_width",
+            "reference_page_height",
+            "minimum_font_size",
+            "maximum_width_to_font_size_ratio",
+            "maximum_height_to_font_size_ratio",
+            "horizontal_padding",
+            "vertical_padding",
+            "line_height_factor",
+            "maximum_wrapped_lines",
+            "wrap_required",
+            "font_autoshrink_allowed"
+          ],
+          "properties": {
+            "reference_page_width": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 827
+            },
+            "reference_page_height": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1169
+            },
+            "minimum_font_size": {
+              "type": "number",
+              "minimum": 12,
+              "default": 14
+            },
+            "maximum_width_to_font_size_ratio": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 30,
+              "default": 20
+            },
+            "maximum_height_to_font_size_ratio": {
+              "type": "number",
+              "minimum": 3,
+              "maximum": 12,
+              "default": 8
+            },
+            "horizontal_padding": {
+              "type": "number",
+              "minimum": 0,
+              "default": 8
+            },
+            "vertical_padding": {
+              "type": "number",
+              "minimum": 0,
+              "default": 4
+            },
+            "line_height_factor": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 2,
+              "default": 1.2
+            },
+            "maximum_wrapped_lines": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6,
+              "default": 4
+            },
+            "wrap_required": {
+              "const": true
+            },
+            "font_autoshrink_allowed": {
+              "const": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "png_margin_policy": {
+          "type": "object",
+          "required": [
+            "crop_to_diagram_required",
+            "target_border_pixels",
+            "maximum_margin_pixels",
+            "white_threshold"
+          ],
+          "properties": {
+            "crop_to_diagram_required": {
+              "const": true
+            },
+            "target_border_pixels": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 30,
+              "default": 10
+            },
+            "maximum_margin_pixels": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60,
+              "default": 20
+            },
+            "white_threshold": {
+              "type": "integer",
+              "minimum": 220,
+              "maximum": 255,
+              "default": 245
             }
           },
           "additionalProperties": false
@@ -354,9 +471,6 @@
               "final_png": {
                 "type": "string",
                 "minLength": 1
-              },
-              "svg": {
-                "type": "string"
               },
               "export_report": {
                 "type": "string",

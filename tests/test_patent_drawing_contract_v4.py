@@ -80,8 +80,10 @@ def fixture(tmp_path: Path) -> tuple[Path, Path]:
         "visual_review_path": "review/visual-review.json",
         "global_constraints": {
             "figure_number_on_canvas": False,
-            "edge_labels_allowed": False,
+            "edge_labels_allowed": True,
             "annotation_nodes_may_be_edge_endpoints": False,
+            "native_edge_labels_required": True,
+            "separate_relation_label_nodes_allowed": False,
             "official_drawio_export_required": True,
             "visual_review_required": True,
             "single_primary_question_required": True,
@@ -90,6 +92,20 @@ def fixture(tmp_path: Path) -> tuple[Path, Path]:
             "method_step_isomorphism_required": True,
             "source_text_binding_required": True,
             "minimum_png_dpi": 300,
+            "png_margin_policy": {"crop_to_diagram_required": True, "target_border_pixels": 10, "maximum_margin_pixels": 20, "white_threshold": 245},
+            "node_text_policy": {
+                "reference_page_width": 827,
+                "reference_page_height": 1169,
+                "minimum_font_size": 14,
+                "maximum_width_to_font_size_ratio": 18,
+                "maximum_height_to_font_size_ratio": 9,
+                "horizontal_padding": 8,
+                "vertical_padding": 4,
+                "line_height_factor": 1.2,
+                "maximum_wrapped_lines": 4,
+                "wrap_required": True,
+                "font_autoshrink_allowed": False,
+            },
             "color_policy": {"mode": "monochrome", "grayscale_safe": True, "color_semantics_redundant": True, "max_nonwhite_fills": 1, "allowed_fill_colors": ["#FFFFFF"], "allowed_stroke_colors": ["#000000"]},
         },
         "figures": [
@@ -158,7 +174,15 @@ def codes(output: Path) -> set[str]:
 def test_v4_schema_is_utf8_json():
     raw = SCHEMA.read_bytes()
     assert not raw.startswith(b"\xef\xbb\xbf")
-    assert json.loads(raw.decode("utf-8"))["$id"] == "cn-patent-drawing-brief/v4"
+    schema = json.loads(raw.decode("utf-8"))
+    assert schema["$id"] == "cn-patent-drawing-brief/v4"
+    constraints = schema["properties"]["global_constraints"]["properties"]
+    assert constraints["edge_labels_allowed"]["const"] is True
+    assert constraints["native_edge_labels_required"]["const"] is True
+    assert constraints["separate_relation_label_nodes_allowed"]["const"] is False
+    assert "node_text_policy" in constraints
+    outputs = schema["properties"]["figures"]["items"]["properties"]["outputs"]["properties"]
+    assert "svg" not in outputs
 
 
 def test_v4_method_flowchart_passes(tmp_path):
@@ -243,3 +267,41 @@ def test_v4_extra_unbound_decision_is_blocked(tmp_path):
     result = run(brief, output)
     assert result.returncode == 2
     assert "BRIEF-DECISION-ISOMORPHISM" in codes(output)
+
+
+def test_v4_approved_style_brief_is_bound_and_stale_hash_is_blocked(tmp_path):
+    brief, output = fixture(tmp_path)
+    baseline = tmp_path / "baseline.drawio"
+    reference = tmp_path / "reference.drawio"
+    baseline.write_text('<mxfile compressed="false"><diagram><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>', encoding="utf-8")
+    reference.write_text(baseline.read_text(encoding="utf-8"), encoding="utf-8")
+    style = tmp_path / "style-brief.json"
+    style_payload = {
+        "schema_id": "cn-patent-drawing-style-brief/v1",
+        "case_id": "case",
+        "generated_at": "2026-09-09",
+        "baseline_drawio": {"path": baseline.name, "sha256": digest(baseline)},
+        "reference_drawio": {"path": reference.name, "sha256": digest(reference)},
+        "analysis_status": "CLEAN_VISUAL_ONLY",
+        "matching": {"strategy": "stable_id_then_reference_sign_then_visible_label", "matched_nodes": [], "unmatched_baseline_nodes": [], "unmatched_reference_nodes": []},
+        "technical_diff": {"added_nodes": [], "removed_nodes": [], "renamed_nodes": [], "added_relations": [], "removed_relations": [], "endpoint_changes": []},
+        "visual_diff": {},
+        "structural_anomalies": [],
+        "reusable_style": {"page": {}, "grid_size": 10, "layout": {}, "typography": {}, "node_geometry": {}, "palette": {}, "edge_style": {}},
+        "application_policy": {"visual_only": True, "preserve_stable_ids": True, "preserve_element_labels": True, "preserve_relation_ids": True, "preserve_relation_endpoints": True, "preserve_method_topology": True},
+        "approval": {"status": "approved", "approved_visual_only": True, "approved_by": "用户", "approved_at": "2026-09-09", "acknowledged_anomaly_codes": []},
+    }
+    write_json(style, style_payload)
+    payload = json.loads(brief.read_text(encoding="utf-8"))
+    payload["style_brief_path"] = style.name
+    payload["style_brief_sha256"] = digest(style)
+    write_json(brief, payload)
+    result = run(brief, output)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["style_brief_validation"]["status"] == "PASS"
+
+    style.write_text(style.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    result = run(brief, output)
+    assert result.returncode == 2
+    assert "BRIEF-STYLE-STALE" in codes(output)

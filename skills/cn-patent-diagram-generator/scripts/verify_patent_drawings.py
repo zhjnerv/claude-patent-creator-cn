@@ -6,9 +6,11 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import subprocess
 import sys
+import unicodedata
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -16,6 +18,20 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BRIEF_VALIDATOR = SCRIPT_DIR / "validate_drawing_brief.py"
+
+DEFAULT_NODE_TEXT_POLICY = {
+    "reference_page_width": 827.0,
+    "reference_page_height": 1169.0,
+    "minimum_font_size": 14.0,
+    "maximum_width_to_font_size_ratio": 18.0,
+    "maximum_height_to_font_size_ratio": 9.0,
+    "horizontal_padding": 8.0,
+    "vertical_padding": 4.0,
+    "line_height_factor": 1.2,
+    "maximum_wrapped_lines": 4,
+    "wrap_required": True,
+    "font_autoshrink_allowed": False,
+}
 
 
 def load_module(path: Path, name: str):
@@ -70,6 +86,10 @@ def plain_text(value: str) -> str:
     return text.replace("&nbsp;", " ").strip()
 
 
+def compact_label(value: str) -> str:
+    return re.sub(r"\s+", "", plain_text(value))
+
+
 def rect(cell: ET.Element) -> tuple[float, float, float, float] | None:
     geometry = cell.find("mxGeometry")
     if geometry is None:
@@ -97,6 +117,109 @@ def explicit_points(edge: ET.Element) -> list[tuple[float, float]]:
         except ValueError:
             pass
     return result
+
+
+def style_number(style: dict[str, str], key: str) -> float | None:
+    value = style.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def display_units(text: str) -> float:
+    """按中英文显示宽度估算一行文本所需空间。"""
+    units = 0.0
+    for char in text:
+        if char == "\n":
+            continue
+        units += 1.0 if unicodedata.east_asian_width(char) in {"W", "F", "A"} else 0.55
+    return units
+
+
+def estimated_line_count(text: str, width: float, font_size: float, padding: float) -> int:
+    available = max(font_size, width - 2 * padding)
+    capacity = max(1.0, available / font_size)
+    lines = 0
+    for raw_line in text.splitlines() or [""]:
+        lines += max(1, math.ceil(display_units(raw_line) / capacity))
+    return lines
+
+
+def verify_node_text_layout(
+    model: ET.Element,
+    vertices: dict[str, ET.Element],
+    figure: dict[str, Any],
+    policy: dict[str, Any],
+) -> list[dict[str, str]]:
+    """在统一 A4 基准坐标中检查技术节点的框字比例和文字容纳能力。"""
+    errors: list[dict[str, str]] = []
+    try:
+        page_width = float(model.get("pageWidth", "0"))
+        page_height = float(model.get("pageHeight", "0"))
+        ref_width = float(policy["reference_page_width"])
+        ref_height = float(policy["reference_page_height"])
+    except (KeyError, TypeError, ValueError):
+        return [{"code": "DRAWING-NODE-TEXT-POLICY", "message": "无法读取画布或节点文字策略尺寸"}]
+    if page_width <= 0 or page_height <= 0:
+        return [{"code": "DRAWING-NODE-TEXT-POLICY", "message": "Draw.io 画布宽高必须大于0"}]
+    if figure.get("orientation") == "landscape":
+        ref_width, ref_height = ref_height, ref_width
+    scale = min(ref_width / page_width, ref_height / page_height)
+    minimum_font = float(policy["minimum_font_size"])
+    max_width_ratio = float(policy["maximum_width_to_font_size_ratio"])
+    max_height_ratio = float(policy["maximum_height_to_font_size_ratio"])
+    padding_x = float(policy["horizontal_padding"])
+    padding_y = float(policy["vertical_padding"])
+    line_height_factor = float(policy["line_height_factor"])
+    max_lines = int(policy["maximum_wrapped_lines"])
+
+    for item in figure["elements"]:
+        if item.get("kind") == "annotation":
+            continue
+        cell = vertices.get(item["id"])
+        box = rect(cell) if cell is not None else None
+        if cell is None or box is None:
+            continue
+        style = parse_style(cell.get("style", ""))
+        font_size = style_number(style, "fontSize")
+        if font_size is None or font_size <= 0:
+            errors.append({"code": "DRAWING-FONT-SIZE", "message": f"节点 {item['id']} 必须显式设置有效 fontSize"})
+            continue
+        width = box[2] * scale
+        height = box[3] * scale
+        normalized_font = font_size * scale
+        if normalized_font + 0.01 < minimum_font:
+            errors.append({
+                "code": "DRAWING-FONT-SIZE",
+                "message": f"节点 {item['id']} 归一化字号 {normalized_font:.2f} 小于 {minimum_font:g}",
+            })
+        if policy.get("wrap_required") is True and style.get("whiteSpace") != "wrap":
+            errors.append({"code": "DRAWING-TEXT-WRAP", "message": f"节点 {item['id']} 必须启用 whiteSpace=wrap"})
+        if normalized_font > 0 and (
+            width / normalized_font > max_width_ratio or height / normalized_font > max_height_ratio
+        ):
+            errors.append({
+                "code": "DRAWING-NODE-PROPORTION",
+                "message": (
+                    f"节点 {item['id']} 框字比例失衡：宽/字号={width / normalized_font:.2f}，"
+                    f"高/字号={height / normalized_font:.2f}"
+                ),
+            })
+        text = plain_text(cell.get("value", ""))
+        lines = estimated_line_count(text, width, max(normalized_font, 0.1), padding_x)
+        required_height = lines * normalized_font * line_height_factor + 2 * padding_y
+        if lines > max_lines or required_height > height + 1:
+            errors.append({
+                "code": "DRAWING-TEXT-OVERFLOW",
+                "message": (
+                    f"节点 {item['id']} 预计需要 {lines} 行、{required_height:.1f}px 高，"
+                    f"当前归一化高度仅 {height:.1f}px"
+                ),
+            })
+    return errors
 
 
 def normalize_color(value: str | None) -> str | None:
@@ -140,9 +263,9 @@ def run_drawio_lint(drawio_skill: Path, drawing: Path) -> dict[str, Any]:
     return {"command": command, "exit_code": result.returncode, "report": payload}
 
 
-def png_info(path: Path) -> dict[str, Any]:
+def png_info(path: Path, white_threshold: int = 245) -> dict[str, Any]:
     exporter = load_module(SCRIPT_DIR / "export_patent_drawio.py", "patent_drawio_export_inspector")
-    return exporter.inspect_png(path)
+    return exporter.inspect_png(path, white_threshold)
 
 
 def verify_drawio(
@@ -150,6 +273,7 @@ def verify_drawio(
     figure: dict[str, Any],
     color_policy: dict[str, Any],
     drawio_skill: Path,
+    node_text_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[dict[str, str]] = []
 
@@ -179,7 +303,7 @@ def verify_drawio(
     for eid in element_ids:
         if eid not in vertices:
             error("DRAWING-ELEMENT", f"合同元素未出现在 drawio：{eid}")
-    allowed_vertex_ids = element_ids | {f"label-{rid}" for rid in relation_ids}
+    allowed_vertex_ids = element_ids
     for vid, cell in vertices.items():
         if vid in {"0", "1"}:
             continue
@@ -202,8 +326,6 @@ def verify_drawio(
         if "text;" in cell.get("style", "") and plain_text(cell.get("value", ""))
     }
     for edge_id, edge in edges.items():
-        if edge.get("value", "").strip():
-            error("DRAWING-EDGE-LABEL", f"边 {edge_id} 直接携带文字")
         if edge.get("source") in visible_text_ids or edge.get("target") in visible_text_ids:
             error("DRAWING-TEXT-WAYPOINT", f"边 {edge_id} 使用可见文字节点作为端点")
         if edge_id not in relation_ids:
@@ -219,15 +341,20 @@ def verify_drawio(
         if edge.get("source") != relation["source"] or edge.get("target") != relation["target"]:
             error("DRAWING-RELATION", f"关系 {relation['id']} 的 source/target 与合同不一致")
         label = relation.get("label", "").strip()
-        label_id = f"label-{relation['id']}"
-        if label:
-            label_cell = vertices.get(label_id)
-            if label_cell is None or plain_text(label_cell.get("value", "")) != label:
-                error("DRAWING-RELATION-LABEL", f"关系 {relation['id']} 缺少旁置标签节点 {label_id}")
-            if any(e.get("source") == label_id or e.get("target") == label_id for e in edges.values()):
-                error("DRAWING-TEXT-WAYPOINT", f"关系标签 {label_id} 被用于路由")
-        elif label_id in vertices:
-            error("DRAWING-RELATION-LABEL", f"无标签关系 {relation['id']} 出现多余标签节点")
+        edge_label = compact_label(edge.get("value", ""))
+        if label and edge_label != compact_label(label):
+            error("DRAWING-NATIVE-EDGE-LABEL", f"关系 {relation['id']} 的原生线条文字与合同不一致：{edge_label!r}")
+        if not label and edge_label:
+            error("DRAWING-NATIVE-EDGE-LABEL", f"无标签关系 {relation['id']} 出现多余原生线条文字：{edge_label!r}")
+        detached_label_ids = [
+            vid for vid, cell in vertices.items()
+            if vid not in element_ids and plain_text(cell.get("value", "")) == label and label
+        ]
+        if detached_label_ids:
+            error(
+                "DRAWING-DETACHED-EDGE-LABEL",
+                f"关系 {relation['id']} 不得使用独立文本框模拟线条文字：{sorted(detached_label_ids)}",
+            )
         source_rect, target_rect = rect(vertices.get(relation["source"], ET.Element("x"))), rect(vertices.get(relation["target"], ET.Element("x")))
         points = explicit_points(edge)
         direction = relation.get("preferred_direction")
@@ -264,6 +391,8 @@ def verify_drawio(
     if len(nonwhite_fills) > color_policy["max_nonwhite_fills"]:
         error("DRAWING-COLOR", f"非白填充色超过上限：{sorted(nonwhite_fills)}")
 
+    errors.extend(verify_node_text_layout(model, vertices, figure, node_text_policy or DEFAULT_NODE_TEXT_POLICY))
+
     lint = run_drawio_lint(drawio_skill, path)
     if lint["exit_code"] != 0 or lint["report"].get("errors") or lint["report"].get("warnings"):
         error("DRAWING-LINT", "drawio-skill validate.py --strict 未通过")
@@ -288,6 +417,8 @@ def reproduce_official_export(drawio_path: Path, final_png: Path, export: dict[s
     width = parameters.get("width")
     dpi = parameters.get("dpi", 300)
     border = parameters.get("border", 10)
+    white_threshold = parameters.get("white_threshold", 245)
+    maximum_margin = parameters.get("maximum_margin_pixels", 20)
     with tempfile.TemporaryDirectory(prefix="patent_drawing_verify_") as raw:
         temp = Path(raw)
         reproduced = temp / "reproduced.png"
@@ -295,7 +426,9 @@ def reproduce_official_export(drawio_path: Path, final_png: Path, export: dict[s
         command = [
             sys.executable, str(SCRIPT_DIR / "export_patent_drawio.py"),
             "--input", str(drawio_path), "--png", str(reproduced),
-            "--dpi", str(dpi), "--border", str(border), "--report", str(report),
+            "--dpi", str(dpi), "--border", str(border),
+            "--white-threshold", str(white_threshold), "--max-margin", str(maximum_margin),
+            "--report", str(report),
         ]
         if isinstance(width, int) and not isinstance(width, bool) and width > 0:
             command.extend(["--width", str(width)])
@@ -359,33 +492,41 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
                 errors.append({"code": "DRAWING-ARTIFACT", "message": f"图{number} 缺少 {required}"})
         if any(required not in paths or not paths[required].is_file() for required in ("drawio", "preview_png", "final_png", "export_report")):
             continue
-        drawio_report = verify_drawio(paths["drawio"], figure, brief["global_constraints"]["color_policy"], drawio_skill)
+        drawio_report = verify_drawio(
+            paths["drawio"],
+            figure,
+            brief["global_constraints"]["color_policy"],
+            drawio_skill,
+            brief["global_constraints"]["node_text_policy"],
+        )
         errors.extend(drawio_report["errors"])
         export = load_json(paths["export_report"], f"图{number} export-report")
         if export.get("schema_id") != "cn-patent-drawio-export/v1":
             errors.append({"code": "DRAWING-EXPORT", "message": f"图{number} 导出报告 schema_id 无效"})
         if export.get("status") != "PASS" or (export.get("renderer") or {}).get("kind") != "drawio_desktop_cli":
             errors.append({"code": "DRAWING-EXPORT", "message": f"图{number} 未由 Draw.io Desktop CLI 正式导出"})
+        export_parameters = export.get("parameters") or {}
+        if export_parameters.get("size") != "diagram":
+            errors.append({"code": "DRAWING-EXPORT-MODE", "message": f"图{number} 必须按 diagram 边界导出，禁止整页白边"})
         if (export.get("source") or {}).get("sha256") != sha256(paths["drawio"]):
             errors.append({"code": "DRAWING-EXPORT-STALE", "message": f"图{number} 导出报告绑定的 drawio 已陈旧"})
-        png = png_info(paths["final_png"])
+        margin_policy = brief["global_constraints"]["png_margin_policy"]
+        png = png_info(paths["final_png"], margin_policy["white_threshold"])
         export_outputs = export.get("outputs") or {}
         export_png = export_outputs.get("png") or {}
         if export_png.get("sha256") != sha256(paths["final_png"]):
             errors.append({"code": "DRAWING-EXPORT-STALE", "message": f"图{number} 最终 PNG 与导出报告不一致"})
-        if "svg" in paths:
-            if not paths["svg"].is_file():
-                errors.append({"code": "DRAWING-ARTIFACT", "message": f"图{number} 合同声明的 SVG 不存在"})
-            else:
-                export_svg = export_outputs.get("svg") or {}
-                if export_svg.get("sha256") != sha256(paths["svg"]):
-                    errors.append({"code": "DRAWING-EXPORT-STALE", "message": f"图{number} 最终 SVG 与导出报告不一致"})
         reproduced = reproduce_official_export(paths["drawio"], paths["final_png"], export)
         if reproduced["exit_code"] != 0 or not reproduced["matched"]:
             errors.append({"code": "DRAWING-EXPORT-REPRODUCE", "message": f"图{number} 无法由当前母版复算出字节一致的官方 CLI PNG"})
         minimum_dpi = brief["global_constraints"].get("minimum_png_dpi", 300)
         if not png.get("dpi") or min(png["dpi"]) + 0.2 < minimum_dpi:
             errors.append({"code": "DRAWING-DPI", "message": f"图{number} PNG DPI 不足：{png.get('dpi')}"})
+        if png.get("maximum_margin") is None or png["maximum_margin"] > margin_policy["maximum_margin_pixels"]:
+            errors.append({
+                "code": "DRAWING-EXCESSIVE-MARGIN",
+                "message": f"图{number} PNG白边超过上限：{png.get('margins')}，maximum={margin_policy['maximum_margin_pixels']}",
+            })
         review = visual_by_number.get(number)
         if not isinstance(review, dict) or review.get("approved") is not True:
             errors.append({"code": "DRAWING-VISUAL", "message": f"图{number} 缺少批准的视觉复核"})
@@ -426,6 +567,7 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
                 "no_arrow_ambiguity", "labels_adjacent", "no_unnecessary_detours",
                 "consistent_typography", "balanced_spacing", "clear_visual_hierarchy",
                 "formal_patent_style", "grayscale_safe", "no_figure_number_on_canvas",
+                "node_text_proportionate", "no_text_overflow", "no_excessive_canvas_margin",
             ]
             mode_check = "monochrome" if brief["global_constraints"]["color_policy"]["mode"] == "monochrome" else "restrained_color"
             required_checks.append(mode_check)
@@ -455,7 +597,7 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "evidence_scope": {
-            "proves": ["绘图合同和来源哈希有效", "当前 Draw.io 母版可复算得到当前最终 PNG", "视觉复核记录绑定当前合同、导出报告和最终 PNG", "逐项视觉检查均有观察记录"],
+            "proves": ["绘图合同和来源哈希有效", "当前 Draw.io 母版可复算得到当前最终 PNG", "技术节点字号、框字比例和估算文本容量满足合同", "视觉复核记录绑定当前合同、导出报告和最终 PNG", "逐项视觉检查均有观察记录"],
             "does_not_prove": ["图示技术方案具备新颖性或创造性", "说明书和权利要求的法律支持关系已经成立", "未由复核者实际观察到的视觉事实"],
         },
         "brief_validation": brief_report,

@@ -10,9 +10,12 @@ from typing import Any
 
 SUPPORTED = {
     "PATENT-DRAWING-SOURCE-BINDING",
+    "PATENT-DRAWING-STYLE-REFERENCE",
     "PATENT-DRAWING-TECH-COVERAGE",
     "PATENT-DRAWING-STEP-ISOMORPHISM",
     "PATENT-DRAWING-DIRECT-CONNECTOR",
+    "PATENT-DRAWING-NODE-TEXT-FIT",
+    "PATENT-DRAWING-PNG-MARGIN",
     "PATENT-DRAWING-COLOR",
     "PATENT-DRAWING-OFFICIAL-EXPORT",
     "PATENT-DRAWING-VISUAL-BINDING",
@@ -24,6 +27,9 @@ VISUAL_CHECKS = {
     "no_edge_through_node",
     "no_arrow_ambiguity",
     "labels_adjacent",
+    "node_text_proportionate",
+    "no_text_overflow",
+    "no_excessive_canvas_margin",
     "no_unnecessary_detours",
     "consistent_typography",
     "balanced_spacing",
@@ -63,6 +69,12 @@ def check_constraint(report: dict[str, Any], constraint: str) -> tuple[bool, lis
         ok = brief.get("status") == "PASS" and not relevant
         return ok, ["brief-pass"] if ok else relevant or ["brief-fail"]
 
+    if constraint == "PATENT-DRAWING-STYLE-REFERENCE":
+        brief = report.get("brief_validation") or {}
+        relevant = sorted(code for code in codes if code.startswith("BRIEF-STYLE"))
+        ok = brief.get("status") == "PASS" and not relevant
+        return ok, ["style-reference-pass"] if ok else relevant or ["style-reference-fail"]
+
     if constraint == "PATENT-DRAWING-TECH-COVERAGE":
         prefixes = ("DRAWING-ELEMENT", "DRAWING-LABEL", "DRAWING-MARK", "DRAWING-RELATION", "DRAWING-EXTRA")
         relevant = sorted(code for code in codes if code.startswith(prefixes))
@@ -84,7 +96,10 @@ def check_constraint(report: dict[str, Any], constraint: str) -> tuple[bool, lis
         return ok, ["method-step-isomorphism-pass"] if ok else relevant or ["method-step-isomorphism-fail"]
 
     if constraint == "PATENT-DRAWING-DIRECT-CONNECTOR":
-        prefixes = ("DRAWING-DIRECT", "DRAWING-EDGE-LABEL", "DRAWING-TEXT-WAYPOINT", "DRAWING-ROUTE", "DRAWING-LINT")
+        prefixes = (
+            "DRAWING-DIRECT", "DRAWING-NATIVE-EDGE-LABEL", "DRAWING-DETACHED-EDGE-LABEL",
+            "DRAWING-TEXT-WAYPOINT", "DRAWING-ROUTE", "DRAWING-LINT",
+        )
         relevant = sorted(code for code in codes if code.startswith(prefixes))
         lint_ok = bool(figures) and all(
             ((item.get("drawio") or {}).get("drawio_skill_lint") or {}).get("exit_code") == 0
@@ -92,6 +107,23 @@ def check_constraint(report: dict[str, Any], constraint: str) -> tuple[bool, lis
         )
         ok = lint_ok and not relevant
         return ok, ["direct-connectors-pass"] if ok else relevant or ["connector-lint-fail"]
+
+    if constraint == "PATENT-DRAWING-NODE-TEXT-FIT":
+        prefixes = (
+            "DRAWING-NODE-TEXT-POLICY", "DRAWING-FONT-SIZE", "DRAWING-TEXT-WRAP",
+            "DRAWING-NODE-PROPORTION", "DRAWING-TEXT-OVERFLOW",
+        )
+        relevant = sorted(code for code in codes if code.startswith(prefixes))
+        ok = bool(figures) and all((item.get("drawio") or {}).get("passed") is True for item in figures) and not relevant
+        return ok, ["node-text-fit-pass"] if ok else relevant or ["node-text-fit-fail"]
+
+    if constraint == "PATENT-DRAWING-PNG-MARGIN":
+        relevant = sorted(code for code in codes if code.startswith(("DRAWING-EXCESSIVE-MARGIN", "DRAWING-EXPORT-MODE")))
+        ok = bool(figures) and all(
+            ((item.get("png") or {}).get("maximum_margin") is not None)
+            for item in figures
+        ) and not relevant
+        return ok, ["png-margin-pass"] if ok else relevant or ["png-margin-fail"]
 
     if constraint == "PATENT-DRAWING-COLOR":
         relevant = sorted(code for code in codes if code == "DRAWING-COLOR")

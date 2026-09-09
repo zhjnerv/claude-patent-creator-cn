@@ -50,14 +50,24 @@
           "consistent_typography": true,
           "balanced_spacing": true,
           "clear_visual_hierarchy": true,
-          "formal_patent_style": true
+          "formal_patent_style": true,
+          "node_text_proportionate": true,
+          "no_text_overflow": true,
+          "no_excessive_canvas_margin": true
         }
       },
       "png": {
         "dpi": [
           300.0,
           300.0
-        ]
+        ],
+        "maximum_margin": 10,
+        "margins": {
+          "left": 10,
+          "top": 10,
+          "right": 10,
+          "bottom": 10
+        }
       }
     }
   ]

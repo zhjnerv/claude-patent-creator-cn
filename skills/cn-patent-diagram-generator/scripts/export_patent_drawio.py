@@ -56,13 +56,13 @@ def run_export(binary: str, source: Path, output: Path, fmt: str, width: int, bo
     with tempfile.TemporaryDirectory(prefix="patent_drawio_export_") as raw:
         temp = Path(raw) / f"export.{fmt}"
         command = [
-            binary, "-x", "-f", fmt, "--size", "page", "--theme", "light",
+            binary, "-x", "-f", fmt, "--size", "diagram", "--theme", "light",
             "--border", str(border), "-o", str(temp),
         ]
         if os.name == "nt":
             # Windows 无头/远端会话下 Electron 需要软件渲染，否则 GPU 进程崩溃导致导出失败
             command.extend(["--no-sandbox", "--disable-gpu", "--use-gl=swiftshader"])
-        if fmt in {"png", "jpg", "svg"}:
+        if fmt == "png":
             command.extend(["--width", str(width)])
         command.append(str(source))
         attempts = [command]
@@ -117,7 +117,137 @@ def set_png_dpi(path: Path, dpi: float) -> None:
     path.write_bytes(b"".join(parts))
 
 
-def inspect_png(path: Path) -> dict[str, Any]:
+def paeth_predictor(left: int, up: int, upper_left: int) -> int:
+    estimate = left + up - upper_left
+    distance_left = abs(estimate - left)
+    distance_up = abs(estimate - up)
+    distance_upper_left = abs(estimate - upper_left)
+    if distance_left <= distance_up and distance_left <= distance_upper_left:
+        return left
+    if distance_up <= distance_upper_left:
+        return up
+    return upper_left
+
+
+def png_content_bounds(path: Path, white_threshold: int = 245) -> dict[str, Any]:
+    """复算PNG非白内容边界；已有Pillow时使用快速路径，否则使用标准库。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
+    if Image is not None:
+        with Image.open(path) as image:
+            rgb = image.convert("RGB")
+            mask = rgb.point(lambda value: 0 if value >= white_threshold else 255)
+            bounds = mask.getbbox()
+            if bounds is None:
+                raise ValueError("PNG未检测到非白图形内容")
+            minimum_x, minimum_y, right, bottom = bounds
+            maximum_x, maximum_y = right - 1, bottom - 1
+            width, height = rgb.size
+        margins = {
+            "left": minimum_x,
+            "top": minimum_y,
+            "right": width - 1 - maximum_x,
+            "bottom": height - 1 - maximum_y,
+        }
+        return {
+            "content_bounds": [minimum_x, minimum_y, maximum_x, maximum_y],
+            "content_width": maximum_x - minimum_x + 1,
+            "content_height": maximum_y - minimum_y + 1,
+            "margins": margins,
+            "maximum_margin": max(margins.values()),
+            "white_threshold": white_threshold,
+            "inspection_engine": "pillow"
+        }
+    chunks = list(png_chunks(path.read_bytes()))
+    ihdr = next((payload for kind, payload, _crc in chunks if kind == b"IHDR"), None)
+    if ihdr is None or len(ihdr) != 13:
+        raise ValueError("PNG缺少有效IHDR")
+    width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack(">IIBBBBB", ihdr)
+    if bit_depth != 8 or interlace != 0 or compression != 0 or filtering != 0:
+        raise ValueError(f"不支持的PNG编码：bit_depth={bit_depth}, interlace={interlace}")
+    channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(color_type)
+    if channels is None:
+        raise ValueError(f"不支持的PNG color_type：{color_type}")
+    compressed = b"".join(payload for kind, payload, _crc in chunks if kind == b"IDAT")
+    raw = zlib.decompress(compressed)
+    stride = width * channels
+    expected = height * (stride + 1)
+    if len(raw) != expected:
+        raise ValueError(f"PNG扫描行长度异常：{len(raw)} != {expected}")
+    previous = bytearray(stride)
+    offset = 0
+    minimum_x = width
+    minimum_y = height
+    maximum_x = maximum_y = -1
+    for y in range(height):
+        filter_type = raw[offset]
+        offset += 1
+        filtered = raw[offset:offset + stride]
+        offset += stride
+        row = bytearray(stride)
+        for index, value in enumerate(filtered):
+            left = row[index - channels] if index >= channels else 0
+            up = previous[index]
+            upper_left = previous[index - channels] if index >= channels else 0
+            if filter_type == 0:
+                decoded = value
+            elif filter_type == 1:
+                decoded = (value + left) & 0xFF
+            elif filter_type == 2:
+                decoded = (value + up) & 0xFF
+            elif filter_type == 3:
+                decoded = (value + ((left + up) // 2)) & 0xFF
+            elif filter_type == 4:
+                decoded = (value + paeth_predictor(left, up, upper_left)) & 0xFF
+            else:
+                raise ValueError(f"未知PNG过滤器：{filter_type}")
+            row[index] = decoded
+        for x in range(width):
+            start = x * channels
+            pixel = row[start:start + channels]
+            if color_type == 0:
+                red = green = blue = pixel[0]
+                alpha = 255
+            elif color_type == 2:
+                red, green, blue = pixel
+                alpha = 255
+            elif color_type == 4:
+                red = green = blue = pixel[0]
+                alpha = pixel[1]
+            else:
+                red, green, blue, alpha = pixel
+            # 把透明度合成到白色背景后判断是否属于图形内容。
+            red = (red * alpha + 255 * (255 - alpha)) // 255
+            green = (green * alpha + 255 * (255 - alpha)) // 255
+            blue = (blue * alpha + 255 * (255 - alpha)) // 255
+            if min(red, green, blue) < white_threshold:
+                minimum_x = min(minimum_x, x)
+                minimum_y = min(minimum_y, y)
+                maximum_x = max(maximum_x, x)
+                maximum_y = max(maximum_y, y)
+        previous = row
+    if maximum_x < 0:
+        raise ValueError("PNG未检测到非白图形内容")
+    margins = {
+        "left": minimum_x,
+        "top": minimum_y,
+        "right": width - 1 - maximum_x,
+        "bottom": height - 1 - maximum_y,
+    }
+    return {
+        "content_bounds": [minimum_x, minimum_y, maximum_x, maximum_y],
+        "content_width": maximum_x - minimum_x + 1,
+        "content_height": maximum_y - minimum_y + 1,
+        "margins": margins,
+        "maximum_margin": max(margins.values()),
+        "white_threshold": white_threshold,
+        "inspection_engine": "stdlib_png_decoder",
+    }
+
+
+def inspect_png(path: Path, white_threshold: int = 245) -> dict[str, Any]:
     width = height = None
     dpi = None
     for kind, payload, _crc in png_chunks(path.read_bytes()):
@@ -127,7 +257,14 @@ def inspect_png(path: Path) -> dict[str, Any]:
             xppm, yppm, unit = struct.unpack(">IIB", payload)
             if unit == 1:
                 dpi = [round(xppm * 0.0254, 4), round(yppm * 0.0254, 4)]
-    return {"width": width, "height": height, "dpi": dpi, "bytes": path.stat().st_size, "sha256": sha256(path)}
+    return {
+        "width": width,
+        "height": height,
+        "dpi": dpi,
+        "bytes": path.stat().st_size,
+        "sha256": sha256(path),
+        **png_content_bounds(path, white_threshold),
+    }
 
 
 def drawio_page_width(path: Path) -> int:
@@ -146,10 +283,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--png", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
-    parser.add_argument("--svg", type=Path)
     parser.add_argument("--width", type=int, help="最终像素宽度；省略时按 drawio pageWidth × DPI/96 计算")
     parser.add_argument("--dpi", type=float, default=300.0)
     parser.add_argument("--border", type=int, default=10)
+    parser.add_argument("--white-threshold", type=int, default=245)
+    parser.add_argument("--max-margin", type=int, default=20)
     args = parser.parse_args(argv)
     try:
         source = args.input.resolve()
@@ -162,18 +300,19 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("导出宽度必须大于 0")
         png_command = run_export(binary, source, args.png.resolve(), "png", width, args.border)
         set_png_dpi(args.png.resolve(), args.dpi)
-        outputs: dict[str, Any] = {"png": {"path": str(args.png.resolve()), **inspect_png(args.png.resolve())}}
+        png_inspection = inspect_png(args.png.resolve(), args.white_threshold)
+        if png_inspection["maximum_margin"] > args.max_margin:
+            raise ValueError(
+                f"PNG白边超过上限：{png_inspection['margins']}，maximum={args.max_margin}"
+            )
+        outputs: dict[str, Any] = {"png": {"path": str(args.png.resolve()), **png_inspection}}
         commands = {"png": png_command}
-        if args.svg:
-            svg_command = run_export(binary, source, args.svg.resolve(), "svg", width, args.border)
-            outputs["svg"] = {"path": str(args.svg.resolve()), "bytes": args.svg.stat().st_size, "sha256": sha256(args.svg.resolve())}
-            commands["svg"] = svg_command
         report = {
             "schema_id": "cn-patent-drawio-export/v1",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "renderer": {"kind": "drawio_desktop_cli", "binary": binary, "version": version},
             "source": {"path": str(source), "sha256": sha256(source)},
-            "parameters": {"width": width, "dpi": args.dpi, "border": args.border, "size": "page", "theme": "light"},
+            "parameters": {"width": width, "dpi": args.dpi, "border": args.border, "size": "diagram", "theme": "light", "white_threshold": args.white_threshold, "maximum_margin_pixels": args.max_margin},
             "commands": commands,
             "outputs": outputs,
             "status": "PASS",

@@ -18,6 +18,11 @@
 - 正文图示声明引用不存在的元素/关系，或图中技术元素/关系没有正文声明覆盖；
 - `drawio-skill` 或 Draw.io Desktop CLI 不可用，却用自制渲染器替代正式输出；
 - `.drawio` 不是未压缩 `mxfile/mxGraphModel`；
+<!-- skill-lint:constraint PATENT-DRAWING-STYLE-REFERENCE -->
+- 使用了用户范例，却没有保存修改前母版、原始范例及其SHA-256；
+- 样式合同未批准、来源哈希陈旧，或未确认范例中的结构异常；
+- 批量套用范例时改变了drawing brief的元素ID、标签、关系ID、source/target、步骤、判断或循环；
+- 把范例中的绝对端点、断连、无来源辅助边或技术文字改动作为样式传播；
 <!-- skill-lint:constraint PATENT-DRAWING-TECH-COVERAGE -->
 - 合同元素或关系缺失，或图中新增无来源的技术元素/关系；
 - 部件标记或步骤号错误、重复或混用；
@@ -28,24 +33,32 @@
 - 图框文字不是步骤号加权利要求动作原文，而是制图端自行概括；
 - 判断节点、真假分支或循环返回步骤与权利要求架构合同不一致；
 <!-- skill-lint:constraint PATENT-DRAWING-DIRECT-CONNECTOR -->
-- 边带文字，或可见文字节点作为边端点/中继；
+- 合同有关系文字但 edge 未使用原生 `value`，文字内容与合同不一致，或另建独立文本框模拟线条文字；
 - 应直连的关系被拆为多条边，或出现自交、折返、重叠、无意义环绕；
 - 线路穿过无关节点、标签或容器标题；
+<!-- skill-lint:constraint PATENT-DRAWING-PNG-MARGIN -->
+- PNG未按 `diagram` 图形边界导出，或任一方向白边超过 `png_margin_policy.maximum_margin_pixels`；
+- 通过后期裁剪PNG掩盖母版或导出模式问题；
 <!-- skill-lint:constraint PATENT-DRAWING-OFFICIAL-EXPORT -->
 - Draw.io 官方 CLI 导出报告缺失，或报告源 SHA 与当前 `.drawio` 不一致；
-- 最终 PNG/SVG 哈希与导出报告不一致；
+- 最终 PNG 哈希与导出报告不一致；
 <!-- skill-lint:constraint PATENT-DRAWING-VISUAL-BINDING -->
 - 视觉复核缺失、未批准，或绑定旧绘图合同、旧导出报告、旧 PNG；
 - 未记录 100% 比例、缩小比例和逐项具体观察；
+<!-- skill-lint:constraint PATENT-DRAWING-NODE-TEXT-FIT -->
+- 技术节点未显式设置字号或未启用自动换行；
+- A4归一化字号小于合同下限，或节点宽高与字号比例超过合同上限；
+- 预计换行数超过上限，或按字体、行高和内边距估算后文字无法容纳在节点中；
+- 通过缩小字体把长文字硬塞进固定节点，或通过扩大整张画布绕过字号门禁；
 <!-- skill-lint:constraint PATENT-DRAWING-COLOR -->
 - 使用渐变、阴影、暗色背景、过量颜色，或颜色成为唯一语义载体；
 - 同一申请的附图风格、字体、编号方式或配色无理由漂移。
 
 ## 机器检查与视觉检查边界
 
-机器可检查：XML结构、ID、来源哈希、标记、直接边、显式路由、自交/重叠、颜色数量、方法步骤/判断/循环同构、Draw.io CLI导出证据、PNG尺寸/DPI和记录新鲜度。
+机器可检查：XML结构、ID、来源哈希、标记、原生线条文字、独立标签文本框、直接边、显式路由、自交/重叠、颜色数量、A4归一化字号、框字比例、估算换行与文本高度、方法步骤/判断/循环同构、Draw.io CLI导出证据、PNG尺寸/DPI和记录新鲜度。
 
-视觉必须检查：实际字体替换、文字裁切、标签是否靠近正确分支、自动路由的隐藏交叉、无意义折返/回钩、箭头方向、字体与节点一致性、整体留白、视觉层级、灰度可读性和是否“像正式专利附图”。
+视觉必须检查：实际字体替换、文字裁切、原生线条文字是否位于正确分支且不遮挡线条或节点、自动路由的隐藏交叉、无意义折返/回钩、箭头方向、字体与节点一致性、整体留白、视觉层级、灰度可读性和是否“像正式专利附图”。
 
 不得用 XML lint 代替最终 PNG 的视觉复核，也不得用视觉审阅者自报 PASS 代替哈希和结构检查。
 
@@ -55,3 +68,4 @@
 - 布局、路由、字体或配色错误：退回 `drawio-skill` 修改 `.drawio`。
 - 导出错误：重新运行 Draw.io Desktop CLI，不得编辑 PNG。
 - 视觉记录陈旧：重新查看最终 PNG 并生成新记录。
+- 最终PNG变化：重新组装DOCX并复验DOCX图片哈希；不得沿用旧Word。

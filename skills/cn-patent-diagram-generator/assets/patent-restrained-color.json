@@ -57,6 +57,7 @@
     "strokeWidth": 1.4,
     "endArrow": "blockThin",
     "singleDirectEdge": true,
-    "labelsAreAnnotations": true
+    "nativeEdgeLabels": true,
+    "separateLabelNodes": false
   }
 }

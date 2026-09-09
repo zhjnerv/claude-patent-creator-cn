@@ -19,7 +19,16 @@
   },
   "figures": [
     {
-      "figure_number": 1
+      "figure_number": 1,
+      "png": {
+        "maximum_margin": 10,
+        "margins": {
+          "left": 10,
+          "top": 10,
+          "right": 10,
+          "bottom": 10
+        }
+      }
     }
   ]
 }

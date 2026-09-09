@@ -7,6 +7,7 @@ import json
 import shutil
 import subprocess
 import sys
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -89,11 +90,27 @@ def create_brief(case: Path, sources: dict[str, Path]) -> Path:
         "global_constraints": {
             "color_policy": restrained_policy(),
             "figure_number_on_canvas": False,
-            "edge_labels_allowed": False,
+            "edge_labels_allowed": True,
             "annotation_nodes_may_be_edge_endpoints": False,
+            "native_edge_labels_required": True,
+            "separate_relation_label_nodes_allowed": False,
             "official_drawio_export_required": True,
             "visual_review_required": True,
             "minimum_png_dpi": 300,
+            "png_margin_policy": {"crop_to_diagram_required": True, "target_border_pixels": 10, "maximum_margin_pixels": 20, "white_threshold": 245},
+            "node_text_policy": {
+                "reference_page_width": 827,
+                "reference_page_height": 1169,
+                "minimum_font_size": 14,
+                "maximum_width_to_font_size_ratio": 18,
+                "maximum_height_to_font_size_ratio": 9,
+                "horizontal_padding": 8,
+                "vertical_padding": 4,
+                "line_height_factor": 1.2,
+                "maximum_wrapped_lines": 4,
+                "wrap_required": True,
+                "font_autoshrink_allowed": False,
+            },
         },
         "visual_review_path": "03-审查工作区/附图/visual-review.json",
         "figures": [{
@@ -119,7 +136,6 @@ def create_brief(case: Path, sources: dict[str, Path]) -> Path:
                 "drawio": "02-申请文件/说明书附图/图1-条件处理流程图.drawio",
                 "preview_png": "03-审查工作区/附图/preview/图1-条件处理流程图.png",
                 "final_png": "02-申请文件/说明书附图/图1-条件处理流程图.png",
-                "svg": "02-申请文件/说明书附图/图1-条件处理流程图.svg",
                 "export_report": "03-审查工作区/附图/export/图1-export.json",
             },
         }],
@@ -131,12 +147,11 @@ def create_brief(case: Path, sources: dict[str, Path]) -> Path:
 def create_valid_drawio(path: Path) -> None:
     write(path, """<mxfile compressed="false"><diagram name="条件处理流程图"><mxGraphModel pageWidth="827" pageHeight="1169"><root>
     <mxCell id="0"/><mxCell id="1" parent="0"/>
-    <mxCell id="S100" value="S100&lt;br&gt;开始处理" style="ellipse;whiteSpace=wrap;html=1;fillColor=#EAF2F8;strokeColor=#405F73;fontColor=#111111;" vertex="1" parent="1"><mxGeometry x="300" y="80" width="220" height="70" as="geometry"/></mxCell>
-    <mxCell id="S110" value="S110&lt;br&gt;条件校验" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F8F2E6;strokeColor=#706347;fontColor=#111111;" vertex="1" parent="1"><mxGeometry x="300" y="240" width="220" height="90" as="geometry"/></mxCell>
-    <mxCell id="S120" value="S120&lt;br&gt;执行处理" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF2F8;strokeColor=#405F73;fontColor=#111111;" vertex="1" parent="1"><mxGeometry x="300" y="430" width="220" height="70" as="geometry"/></mxCell>
+    <mxCell id="S100" value="S100&lt;br&gt;开始处理" style="ellipse;whiteSpace=wrap;html=1;fillColor=#EAF2F8;strokeColor=#405F73;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="80" width="220" height="70" as="geometry"/></mxCell>
+    <mxCell id="S110" value="S110&lt;br&gt;条件校验" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F8F2E6;strokeColor=#706347;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="240" width="220" height="90" as="geometry"/></mxCell>
+    <mxCell id="S120" value="S120&lt;br&gt;执行处理" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF2F8;strokeColor=#405F73;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="430" width="220" height="70" as="geometry"/></mxCell>
     <mxCell id="R1" edge="1" source="S100" target="S110" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-    <mxCell id="R2" edge="1" source="S110" target="S120" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-    <mxCell id="label-R2" value="是" style="text;html=1;align=center;verticalAlign=middle;fillColor=#FFFFFF;strokeColor=none;fontColor=#111111;" vertex="1" parent="1"><mxGeometry x="540" y="360" width="40" height="30" as="geometry"/></mxCell>
+    <mxCell id="R2" value="是" edge="1" source="S110" target="S120" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
     </root></mxGraphModel></diagram></mxfile>""")
 
 
@@ -193,6 +208,131 @@ def test_historical_source_label_target_route_is_rejected(tmp_path):
 
 
 
+def test_detached_relation_label_is_rejected(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_detached_label")
+    drawing = tmp_path / "detached-label.drawio"
+    create_valid_drawio(drawing)
+    text = drawing.read_text(encoding="utf-8")
+    text = text.replace('id="R2" value="是"', 'id="R2" value=""')
+    text = text.replace(
+        '</root>',
+        '<mxCell id="label-R2" value="是" style="text;html=1;" vertex="1" parent="1">'
+        '<mxGeometry x="540" y="360" width="40" height="30" as="geometry"/></mxCell></root>',
+    )
+    drawing.write_text(text, encoding="utf-8")
+    figure = {
+        "figure_number": 1,
+        "elements": [
+            {"id": "S100", "label": "开始处理", "reference_sign": "S100"},
+            {"id": "S110", "label": "条件校验", "reference_sign": "S110"},
+            {"id": "S120", "label": "执行处理", "reference_sign": "S120"},
+        ],
+        "relations": [
+            {"id": "R1", "source": "S100", "target": "S110", "preferred_direction": "vertical", "direct_connection_required": True},
+            {"id": "R2", "source": "S110", "target": "S120", "label": "是", "preferred_direction": "vertical", "direct_connection_required": True},
+        ],
+    }
+    report = verifier.verify_drawio(drawing, figure, restrained_policy(), DRAWIO_SKILL)
+    codes = {item["code"] for item in report["errors"]}
+    assert "DRAWING-NATIVE-EDGE-LABEL" in codes
+    assert "DRAWING-DETACHED-EDGE-LABEL" in codes
+
+
+def test_brief_rejects_obsolete_svg_output(tmp_path):
+    case = tmp_path / "case"
+    sources = create_sources(case)
+    brief = create_brief(case, sources)
+    payload = json.loads(brief.read_text(encoding="utf-8"))
+    payload["figures"][0]["outputs"]["svg"] = "02-申请文件/说明书附图/图1.svg"
+    write(brief, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    result = run(BRIEF_VALIDATOR, "--brief", str(brief), "--case-dir", str(case))
+    assert result.returncode == 2
+    assert "BRIEF-OUTPUT-OBSOLETE" in result.stdout
+
+
+def test_oversized_node_with_small_font_is_rejected(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_large_box")
+    drawing = tmp_path / "large-box.drawio"
+    create_valid_drawio(drawing)
+    text = drawing.read_text(encoding="utf-8").replace(
+        'x="300" y="430" width="220" height="70"',
+        'x="120" y="430" width="600" height="120"',
+    )
+    drawing.write_text(text, encoding="utf-8")
+    figure = {
+        "figure_number": 1,
+        "orientation": "portrait",
+        "elements": [
+            {"id": "S100", "label": "开始处理", "reference_sign": "S100"},
+            {"id": "S110", "label": "条件校验", "reference_sign": "S110"},
+            {"id": "S120", "label": "执行处理", "reference_sign": "S120"},
+        ],
+        "relations": [
+            {"id": "R1", "source": "S100", "target": "S110", "preferred_direction": "vertical", "direct_connection_required": True},
+            {"id": "R2", "source": "S110", "target": "S120", "label": "是", "preferred_direction": "vertical", "direct_connection_required": True},
+        ],
+    }
+    report = verifier.verify_drawio(drawing, figure, restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-NODE-PROPORTION" for item in report["errors"])
+
+
+def test_text_overflow_is_rejected(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_text_overflow")
+    drawing = tmp_path / "text-overflow.drawio"
+    create_valid_drawio(drawing)
+    text = drawing.read_text(encoding="utf-8").replace(
+        'value="S120&lt;br&gt;执行处理"',
+        'value="S120&lt;br&gt;这是一个明显无法容纳在当前狭小方框中的超长技术动作文字"',
+    ).replace(
+        'x="300" y="430" width="220" height="70"',
+        'x="360" y="430" width="100" height="45"',
+    )
+    drawing.write_text(text, encoding="utf-8")
+    figure = {
+        "figure_number": 1,
+        "orientation": "portrait",
+        "elements": [
+            {"id": "S100", "label": "开始处理", "reference_sign": "S100"},
+            {"id": "S110", "label": "条件校验", "reference_sign": "S110"},
+            {"id": "S120", "label": "这是一个明显无法容纳在当前狭小方框中的超长技术动作文字", "reference_sign": "S120"},
+        ],
+        "relations": [
+            {"id": "R1", "source": "S100", "target": "S110", "preferred_direction": "vertical", "direct_connection_required": True},
+            {"id": "R2", "source": "S110", "target": "S120", "label": "是", "preferred_direction": "vertical", "direct_connection_required": True},
+        ],
+    }
+    report = verifier.verify_drawio(drawing, figure, restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-TEXT-OVERFLOW" for item in report["errors"])
+
+
+def make_rgb_png(path: Path, width: int, height: int, black_box: tuple[int, int, int, int]) -> None:
+    exporter = load_module(EXPORTER, "patent_png_writer")
+    left, top, right, bottom = black_box
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            color = 0 if left <= x <= right and top <= y <= bottom else 255
+            row.extend((color, color, color))
+        rows.append(b"\x00" + bytes(row))
+    ihdr = __import__("struct").pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(
+        exporter.PNG_SIGNATURE
+        + exporter.chunk(b"IHDR", ihdr)
+        + exporter.chunk(b"IDAT", zlib.compress(b"".join(rows)))
+        + exporter.chunk(b"IEND", b"")
+    )
+
+
+def test_png_margin_inspector_detects_excessive_white_border(tmp_path):
+    exporter = load_module(EXPORTER, "patent_png_margin_inspector")
+    png = tmp_path / "padded.png"
+    make_rgb_png(png, 100, 80, (30, 20, 69, 59))
+    info = exporter.inspect_png(png, 245)
+    assert info["margins"] == {"left": 30, "top": 20, "right": 30, "bottom": 20}
+    assert info["maximum_margin"] == 30
+
+
 def test_restrained_color_policy_rejects_unapproved_flashy_fill(tmp_path):
     verifier = load_module(VERIFIER, "patent_drawing_verifier_color")
     drawing = tmp_path / "color.drawio"
@@ -223,15 +363,18 @@ def test_official_cli_export_and_final_verifier_pass(tmp_path):
     create_valid_drawio(drawing)
     preview = case / "03-审查工作区/附图/preview/图1-条件处理流程图.png"
     final_png = case / "02-申请文件/说明书附图/图1-条件处理流程图.png"
-    svg = final_png.with_suffix(".svg")
     report = case / "03-审查工作区/附图/export/图1-export.json"
-    export_result = run(EXPORTER, "--input", str(drawing), "--png", str(final_png), "--svg", str(svg), "--dpi", "300", "--report", str(report))
+    export_result = run(EXPORTER, "--input", str(drawing), "--png", str(final_png), "--dpi", "300", "--report", str(report))
     assert export_result.returncode == 0, export_result.stdout
     preview.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(final_png, preview)
     export_payload = json.loads(report.read_text(encoding="utf-8"))
     assert export_payload["renderer"]["kind"] == "drawio_desktop_cli"
     assert export_payload["source"]["sha256"] == digest(drawing)
+    assert export_payload["parameters"]["size"] == "diagram"
+    assert "--size" in export_payload["commands"]["png"]
+    assert export_payload["commands"]["png"][export_payload["commands"]["png"].index("--size") + 1] == "diagram"
+    assert set(export_payload["outputs"]) == {"png"}
     visual = {
         "schema_id": "cn-patent-drawing-visual-review/v1",
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -244,6 +387,8 @@ def test_official_cli_export_and_final_verifier_pass(tmp_path):
                 "text_legible": True, "no_text_overlap": True, "no_edge_crossing": True,
                 "no_edge_through_node": True, "no_arrow_ambiguity": True,
                 "labels_adjacent": True, "no_unnecessary_detours": True,
+                "node_text_proportionate": True, "no_text_overflow": True,
+                "no_excessive_canvas_margin": True,
                 "consistent_typography": True, "balanced_spacing": True,
                 "clear_visual_hierarchy": True, "formal_patent_style": True,
                 "monochrome": False, "restrained_color": True,
@@ -291,9 +436,12 @@ def test_official_cli_export_and_final_verifier_pass(tmp_path):
     ("constraint_id", "observable", "measurement", "negative_fixture"),
     [
         ("PATENT-DRAWING-SOURCE-BINDING", "source-binding-observable", "source-binding-pass", "stale-source.json"),
+        ("PATENT-DRAWING-STYLE-REFERENCE", "style-reference-observable", "style-reference-pass", "stale-style-reference.json"),
         ("PATENT-DRAWING-TECH-COVERAGE", "tech-coverage-observable", "tech-coverage-pass", "missing-element.json"),
         ("PATENT-DRAWING-STEP-ISOMORPHISM", "step-isomorphism-observable", "step-isomorphism-pass", "step-isomorphism-mismatch.json"),
-        ("PATENT-DRAWING-DIRECT-CONNECTOR", "direct-connector-observable", "direct-connector-pass", "historical-text-waypoint.json"),
+        ("PATENT-DRAWING-DIRECT-CONNECTOR", "direct-connector-observable", "direct-connector-pass", "detached-edge-label.json"),
+        ("PATENT-DRAWING-NODE-TEXT-FIT", "node-text-fit-observable", "node-text-fit-pass", "node-text-mismatch.json"),
+        ("PATENT-DRAWING-PNG-MARGIN", "png-margin-observable", "png-margin-pass", "excessive-margin.json"),
         ("PATENT-DRAWING-COLOR", "color-observable", "color-pass", "flashy-color.json"),
         ("PATENT-DRAWING-OFFICIAL-EXPORT", "official-export-observable", "official-export-pass", "forged-export.json"),
         ("PATENT-DRAWING-VISUAL-BINDING", "visual-binding-observable", "visual-binding-pass", "unapproved-visual.json"),
@@ -331,9 +479,12 @@ def test_stability_contract_covers_all_hard_constraints():
     constraint_ids = {item["id"] for item in contract["constraints"] if item["severity"] == "hard"}
     assert constraint_ids == {
         "PATENT-DRAWING-SOURCE-BINDING",
+        "PATENT-DRAWING-STYLE-REFERENCE",
         "PATENT-DRAWING-TECH-COVERAGE",
         "PATENT-DRAWING-STEP-ISOMORPHISM",
         "PATENT-DRAWING-DIRECT-CONNECTOR",
+        "PATENT-DRAWING-NODE-TEXT-FIT",
+        "PATENT-DRAWING-PNG-MARGIN",
         "PATENT-DRAWING-COLOR",
         "PATENT-DRAWING-OFFICIAL-EXPORT",
         "PATENT-DRAWING-VISUAL-BINDING",
@@ -343,7 +494,7 @@ def test_stability_contract_covers_all_hard_constraints():
 def test_skill_is_domain_adapter_for_drawio_skill():
     skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     for required in (
-        'version: "4.0.0"', "drawio-skill", "cn-patent-drawing-brief/v4",
+        'version: "4.3.0"', "drawio-skill", "cn-patent-drawing-brief/v4",
         "Draw.io Desktop CLI", "patent_restrained_color", "verify_patent_drawings.py",
     ):
         assert required in skill

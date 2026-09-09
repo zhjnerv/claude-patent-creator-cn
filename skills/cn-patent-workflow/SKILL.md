@@ -57,10 +57,12 @@ allowed-tools: Bash, Read, Write
 → 数据流/方法—系统/异常出口复算
 → 权利要求架构门（载体分工/继承拓扑/方法步骤）
 → drawing brief v4与步骤同构门
+→ 可选用户范例差异分析与style brief v1确认
 → 附图
 → 综合审查
 → 可选 DOCX
 → DOCX 输入/输出哈希复验
+→ 附图—DOCX最终交付绑定验证
 ```
 
 各阶段的入口、必需输入、输出和停止条件见 `references/stage-map.md`。

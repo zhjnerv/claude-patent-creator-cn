@@ -61,7 +61,10 @@
               "consistent_typography",
               "balanced_spacing",
               "clear_visual_hierarchy",
-              "formal_patent_style"
+              "formal_patent_style",
+              "node_text_proportionate",
+              "no_text_overflow",
+              "no_excessive_canvas_margin"
             ],
             "properties": {
               "text_legible": {
@@ -107,6 +110,15 @@
                 "const": true
               },
               "formal_patent_style": {
+                "const": true
+              },
+              "node_text_proportionate": {
+                "const": true
+              },
+              "no_text_overflow": {
+                "const": true
+              },
+              "no_excessive_canvas_margin": {
                 "const": true
               }
             },

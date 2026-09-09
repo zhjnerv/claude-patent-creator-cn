@@ -35,3 +35,4 @@ CN_PATENT_EPO_PROVIDER_COMMAND
 ## Draw.io Provider
 
 附图阶段依赖独立 `drawio-skill` 和 Draw.io Desktop CLI。中国专利 Skill 只负责绘图合同、专利样式和最终验收。
+用户提供修改后的Draw.io范例时，先由 `analyze_drawing_reference.py` 生成并经用户批准 `cn-patent-drawing-style-brief/v1`；`drawio-skill` 只复用其中的视觉语法，技术节点、关系和端点仍以drawing brief为准。正式PNG必须按 `diagram` 内容边界导出并通过白边像素门禁。

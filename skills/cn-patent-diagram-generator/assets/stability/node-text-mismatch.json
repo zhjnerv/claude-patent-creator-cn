@@ -3,7 +3,7 @@
   "status": "FAIL",
   "errors": [
     {
-      "code": "DRAWING-VISUAL"
+      "code": "DRAWING-NODE-PROPORTION"
     }
   ],
   "brief_validation": {
@@ -14,8 +14,12 @@
     {
       "figure_number": 1,
       "drawio": {
-        "passed": true,
-        "errors": [],
+        "passed": false,
+        "errors": [
+          {
+            "code": "DRAWING-NODE-PROPORTION"
+          }
+        ],
         "nonwhite_fill_colors": [],
         "drawio_skill_lint": {
           "exit_code": 0,
@@ -30,11 +34,11 @@
         "exit_code": 0
       },
       "visual_review": {
-        "approved": false,
+        "approved": true,
         "checks": {
           "text_legible": true,
           "no_text_overlap": true,
-          "no_edge_crossing": false,
+          "no_edge_crossing": true,
           "no_edge_through_node": true,
           "no_arrow_ambiguity": true,
           "labels_adjacent": true,
@@ -44,7 +48,7 @@
           "restrained_color": false,
           "no_unnecessary_detours": true,
           "consistent_typography": true,
-          "balanced_spacing": false,
+          "balanced_spacing": true,
           "clear_visual_hierarchy": true,
           "formal_patent_style": true,
           "node_text_proportionate": true,

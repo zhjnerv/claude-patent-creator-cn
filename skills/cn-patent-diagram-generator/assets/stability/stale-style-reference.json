@@ -3,23 +3,23 @@
   "status": "FAIL",
   "errors": [
     {
-      "code": "DRAWING-TEXT-WAYPOINT"
+      "code": "BRIEF-STYLE-STALE"
     }
   ],
   "brief_validation": {
-    "status": "PASS",
-    "errors": []
+    "status": "FAIL",
+    "errors": [
+      {
+        "code": "BRIEF-STYLE-STALE"
+      }
+    ]
   },
   "figures": [
     {
       "figure_number": 1,
       "drawio": {
-        "passed": false,
-        "errors": [
-          {
-            "code": "DRAWING-TEXT-WAYPOINT"
-          }
-        ],
+        "passed": true,
+        "errors": [],
         "nonwhite_fill_colors": [],
         "drawio_skill_lint": {
           "exit_code": 0,
@@ -50,14 +50,24 @@
           "consistent_typography": true,
           "balanced_spacing": true,
           "clear_visual_hierarchy": true,
-          "formal_patent_style": true
+          "formal_patent_style": true,
+          "node_text_proportionate": true,
+          "no_text_overflow": true,
+          "no_excessive_canvas_margin": true
         }
       },
       "png": {
         "dpi": [
           300.0,
           300.0
-        ]
+        ],
+        "maximum_margin": 10,
+        "margins": {
+          "left": 10,
+          "top": 10,
+          "right": 10,
+          "bottom": 10
+        }
       }
     }
   ]

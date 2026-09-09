@@ -96,7 +96,7 @@ ED_CT=Q_CT×C_CT(P,a)
 ## 附图和摘要附图
 
 1. 从 `说明书附图.md` 的 `## 图N ...` 与紧随其后的图片链接读取图号和顺序；
-2. Markdown 链接指向 SVG 时，优先使用同名 PNG 作为 Word 内嵌图；
+2. 当前流程的 Markdown 图片链接必须指向最终 PNG；历史文件若仍链接 SVG，可兼容读取同名 PNG，但不得据此重新生成 SVG；
 3. 每幅说明书附图独占一页，图号放在图下，不在图面重复写图号；
 4. 摘要附图编号从 `说明书摘要.md` 的“摘要附图：图N。”读取；
 5. 图片使用内嵌方式，不使用浮动环绕；不得拉伸、裁剪或跨页拆分。
@@ -192,4 +192,4 @@ python skills/cn-patent-application-creator/scripts/verify_docx_assembly.py \
   --output "<案件>/03-审查工作区/docx组装-*/docx-assembly-verification.json"
 ```
 
-验证器只证明报告绑定的模板、四文书、嵌入图片和 DOCX 当前仍是同一字节版本；不证明法律实体条件或未执行的视觉检查。
+验证器只证明报告绑定的模板、四文书、嵌入图片和 DOCX 当前仍是同一字节版本；不证明法律实体条件或未执行的视觉检查。附图流程还必须运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`，交叉核对最终附图验证、DOCX报告中的逐图路径/SHA-256和DOCX新鲜度。若用户明确要求Word视觉检查，记录应符合 `references/docx-visual-review-schema.json`。

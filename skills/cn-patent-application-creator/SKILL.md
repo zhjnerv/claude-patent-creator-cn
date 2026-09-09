@@ -419,17 +419,18 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 - 模板是版式和样式的唯一事实来源；必须复用五个分节、页眉页脚、页码、行号、页边距、权利要求自动编号和既有样式，不得另造近似版式；
 - “技术领域、背景技术、发明内容、附图说明、具体实施方式”使用模板的 `Heading 1` 段落样式，并对标题文字应用 Word `Strong` 字符样式（中文界面显示为“要点”），不得只设置 `bold=True`；
 - 数学表达式必须直接生成 Word 原生 OMML `m:oMath` 对象；使用 `m:f`、`m:sSub`、`m:sSup`、`m:sSubSup` 和 `m:d` 保留下标、上标、分式与括号结构。Linux、macOS 和 Windows 均不得依赖普通字符、公式截图或仅设置数学字体冒充原生公式；
-- 说明书附图按 `说明书附图.md` 顺序读取，SVG 链接优先选同名 PNG 内嵌；摘要附图从 `说明书摘要.md` 的“摘要附图：图N。”机械确定；
+- 说明书附图按 `说明书附图.md` 顺序读取当前流程生成的 PNG；摘要附图从 `说明书摘要.md` 的“摘要附图：图N。”机械确定；
 - 脚本必须输出 `cn-patent-docx-assembly/v2` 报告。默认机器校验五分节、页眉序列、标题“要点”样式数量、原生公式对象数量、图片数量和 DOCX ZIP 完整性，并逐一绑定模板、四文书、全部嵌入图片和输出 DOCX 的 SHA-256；只有请求视觉检查时才记录 PDF 页数；
 - **视觉检查默认关闭。** 不得仅因生成或修改了 Word 就导出 PDF、渲染 PNG、截图或逐页目视确认。只有用户明确要求检查 Word 版式、逐页截图或视觉效果时，才传入 `--visual-review`；Windows 使用 Word、Linux/macOS 使用 LibreOffice 导出 PDF，再校验 PDF 页数与 PNG 页数一致并由操作者目视复核。未请求视觉检查不构成交付缺陷。
 - 未请求视觉检查时，报告写入 `render.requested=false`、`visual_review_completed=null` 和 `status=STRUCTURE_VERIFIED`；请求后写入 `render.requested=true`、`visual_review_completed=false`，待外部人工复核记录完成状态。组装后必须运行 `scripts/verify_docx_assembly.py` 复算当前输入和输出哈希；任一源文书或附图变化都使旧 DOCX 报告失效。
+- 附图属于交付范围时，附图最终验证通过后必须重新组装DOCX，并运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`，证明DOCX报告中的逐图路径和SHA-256等于当前最终PNG；不得只凭图片数量相同沿用旧Word。用户明确要求逐页视觉检查时，视觉记录使用 `references/docx-visual-review-schema.json`。
 
 本技能的最终交付目录固定只包含四类技术文书：
 
 - **权利要求书**（提交副本，编号连续、引用形式合规，且每项按 Word 口径不超过 600 字；公式或特殊公式变量整体计 1）；
 - **说明书**（提交副本，五章节，格式按前文《说明书输出格式》）；
 - **说明书摘要**（不超过 300 字）并在摘要正文或交付约定位置指定**摘要附图**；
-- **说明书附图**（保留可直接编辑的 `.drawio` 母版，并从确认后的母版导出符合后续申报处理要求的 SVG、300-DPI PNG 或 PDF；母版和导出文件均须目视检查线条、字号、箭头及文字是否重叠）。
+- **说明书附图**（保留可直接编辑的 `.drawio` 母版，并从确认后的母版导出符合后续申报处理要求的 300-DPI PNG；不再生成 SVG 过程文件；母版和导出文件均须检查节点与字号比例、文字是否溢出、线条、箭头及文字是否重叠）。
 
 用户要求单一 DOCX 或案件存在用户指定输出模板时，另交付一个包含上述四文书的合并 `.docx`；它是交付容器，不是第五类法定技术文书。
 
@@ -461,7 +462,7 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 - 为控制项数把从属方案直接删掉，而没有回落到说明书——第三十三条之下这等于永久丢弃。
 - 说明书改写权利要求术语（支持缺口会在实审中暴露）。
 - 附图标记用表格承载，或图上有的标记正文里找不到。
-- 使用自动漂移的边标签承载数据流说明，或把独立文字节点串进 source→label→target 路由，导致文字压线、十字交叉、回钩或箭头指向歧义；说明文字必须旁置，技术关系保持一条 source→target 直连边。
+- 在线条外另建独立文本框模拟数据流或分支说明，或把文字节点串进 source→label→target 路由；关系文字必须使用 Draw.io 原生 edge label，技术关系保持一条 source→target 直连边。
 - 权利要求、说明书和附图描述同一个算法的三个不同版本。
 - 断言"确定性终止"却没有穷举每一个终态。
 - 权利要求用语描述实现不具有的行为。

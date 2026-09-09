@@ -3,7 +3,7 @@ name: cn-patent-diagram-generator
 description: 中国专利说明书附图的领域适配与验收 Skill。应在从权利要求书、说明书和区别特征台账生成或修改中国发明/实用新型附图时使用：先冻结图号、技术元素、部件标记、步骤号和关系，形成 cn-patent-drawing-brief/v4，再调用 drawio-skill 完成专业布局、原生 .drawio 制作、Draw.io Desktop CLI 导出和视觉迭代，最后执行专利图文一致性与候选绑定验收。不要用于一般商业图表，也不要在本 Skill 内另造一套 Draw.io 布局或 PNG 渲染器。
 allowed-tools: Bash, Read, Write
 metadata:
-  version: "4.0.0"
+  version: "4.3.0"
 ---
 
 # 中国专利附图适配器 v4
@@ -25,18 +25,37 @@ metadata:
 
 1. 当前环境必须提供 `drawio-skill`。先读取其 `SKILL.md`；按图型需要再读 `references/diagram-types.md`、`references/xml-authoring.md`、`references/autolayout.md` 和 `references/troubleshooting.md`。
 2. 必须存在 Draw.io Desktop CLI（`drawio` 或 `draw.io`）。
-3. 任一依赖缺失时，只能交付已校验的绘图合同并报告阻塞；不得改用 Pillow、浏览器截图、独立 SVG/canvas 或第二套坐标模型冒充正式导出。
+3. 任一依赖缺失时，只能交付已校验的绘图合同并报告阻塞；不得改用 Pillow、浏览器截图、canvas 或第二套坐标模型冒充正式导出。
 4. 所有输出写入用户指定案件目录，不得把客户案件或图面产物写入 Skill 目录。
 
 完整调用和官方导出规则见 `references/drawio-execution.md`。
 
 ## 所需权限与安全说明
 
-- 本Skill需要读取案件目录中的权利要求、说明书、JSON合同和附图，并在用户指定案件目录写入 `.drawio`、PNG/SVG及验证报告；不扫描案件目录之外的客户材料。
+- 本Skill需要读取案件目录中的权利要求、说明书、JSON合同和附图，并在用户指定案件目录写入 `.drawio`、PNG及验证报告；不扫描案件目录之外的客户材料。
 - 正式导出和复验会以参数数组、`shell=False`调用本机已安装的 Draw.io Desktop CLI、Python验证脚本和 `drawio-skill`；不会执行附图文字或案件JSON中的命令。
 - Windows下只读取 `LOCALAPPDATA` 以定位标准 Draw.io Desktop 安装路径，不读取账号、令牌、密码或凭据文件。
 - 默认不联网、不自动安装软件、不上传申请文件。Draw.io或`drawio-skill`缺失时按停止条件报告阻塞。
 - 所有输入路径必须经过案件目录边界检查；验证器不得修改客户源文件或以编辑导出PNG绕过母版问题。
+
+## 用户范例与样式合同
+
+用户提供修改后的 Draw.io 范例时，不得直接复制整份 XML 或坐标。先保存原始范例并绑定 SHA-256，再运行：
+
+```bash
+python scripts/analyze_drawing_reference.py \
+  --baseline "<案件>/03-审查工作区/附图/style-input/修改前.drawio" \
+  --reference "<案件>/03-审查工作区/附图/style-input/用户范例.drawio" \
+  --case-dir "<案件>" \
+  --case-id "<案件ID>" \
+  --output "<案件>/03-审查工作区/附图/drawing-style-brief.json"
+```
+
+分析器按稳定 ID、部件/步骤标记、可见标签依次匹配，分别输出技术差异、视觉差异和结构异常。范例中的新增/删除技术关系、绝对端点、断连或重复标签不得静默传播。向用户复述视觉意图并得到明确确认后，才可使用 `--approve-by` 生成批准状态，并运行 `validate_drawing_style_brief.py`。
+
+批准的 `cn-patent-drawing-style-brief/v1` 只允许控制主链方向、同层分支、汇聚方式、节点尺寸、字号、网格、配色、形状和连线语法；drawing brief 中的元素 ID、标签、关系 ID、source/target、方法步骤、判断和循环始终是技术事实来源。若 drawing brief 声明 `style_brief_path`，同时必须绑定 `style_brief_sha256`，且样式合同必须批准并保持新鲜。
+
+Schema：`references/drawing-style-brief-schema.json`；示例：`assets/drawing-style-brief.example.json`。
 
 ## 输入合同
 
@@ -52,8 +71,9 @@ metadata:
 - 方法流程图逐项登记 `method_claim_number`、`step_bindings`、`decision_bindings` 和 `loop_bindings`；
 - 每条关系的 source、target、类型、优选方向、独立 `route_channel` 和是否必须直连；
 - 正常/异常出口，以及说明书声称该图表达的元素 ID、关系 ID 和原文锚点；
-- `.drawio`、预览图、最终 PNG/SVG、导出报告的目标路径；
-- 配色策略和视觉复核文件路径。
+- `.drawio`、预览图、最终 PNG、导出报告的目标路径；
+- 配色策略、节点文字适配策略、PNG边距策略和视觉复核文件路径；
+- 存在用户范例时，批准后的样式合同路径及SHA-256。
 
 先运行：
 
@@ -74,12 +94,14 @@ python scripts/validate_drawing_brief.py \
 2. 部件标记在说明书中先确定，再进入图面。部件用数字，方法步骤用 `Sxxx`；二者不得混用。
 3. 图号和图名只存在于文件名、Draw.io 页面名和说明书附图说明，不进入画布。
 4. 每幅图只表达一个独立逻辑；复杂系统组成和复杂方法流程应拆图。
-5. 元素 ID 和关系 ID 必须沿用绘图合同；关系标签节点固定使用 `label-<relation-id>`，便于机器对账。
-6. 边不得携带文字。关系说明和“是/否”使用旁置独立文字节点，但文字节点不得成为边端点或中继。
+5. 元素 ID 和关系 ID 必须沿用绘图合同。
+6. 关系说明、“是/否”和数据流名称必须直接写入对应 edge 的原生 `value`；不得在线条外创建独立文本框模拟关系标签，也不得把文字节点作为边端点或中继。
 7. 每项技术关系只有一条 source→target 直接边。本可竖直或水平直连时不得增加 waypoint；只有绕开无关节点时才使用显式正交路由。
 8. 禁止线穿节点、线穿文字、自交、回钩、重叠、无意义环绕及箭头方向歧义。
-9. 方法流程图的步骤号、顺序、动作文字、判断条件和循环返回点必须逐项来自 `claim-architecture.json`；不得因版面空间自行概括、合并或重新编号。空间不足时扩大节点、画布或拆图。
-10. 权利要求、说明书或权利要求架构合同变化后，旧绘图合同、旧视觉记录和旧最终附图全部失效。
+9. 节点必须显式设置字号并启用自动换行；不得通过缩小字体容纳文字。节点尺寸应由文字长度和预计行数决定，不得用大方框承载明显偏小的文字，也不得让文字裁切或溢出边界。
+10. 所有节点尺寸和字号按 A4 基准画布归一化检查，避免仅因扩大整个画布而绕过字号和框字比例门禁。
+11. 方法流程图的步骤号、顺序、动作文字、判断条件和循环返回点必须逐项来自 `claim-architecture.json`；不得因版面空间自行概括、合并或重新编号。空间不足时调整节点、增加画布有效高度或拆图，不得缩小字号硬塞。
+12. 权利要求、说明书或权利要求架构合同变化后，旧绘图合同、旧视觉记录和旧最终附图全部失效。
 
 ## 图型与样式
 
@@ -122,17 +144,16 @@ python scripts/validate_drawing_brief.py \
 4. 运行 drawio-skill 的结构 lint；
 5. 用 Draw.io Desktop CLI 输出预览 PNG；
 6. 查看预览并修改 `.drawio`，直到文字、边、箭头、留白和配色通过；
-7. 用官方 CLI 输出最终 PNG/SVG；不得编辑导出图来掩盖母版问题。
+7. 用官方 CLI 输出最终 PNG；不得编辑导出图来掩盖母版问题。
 
 ## 官方导出
 
-本 Skill 的包装器只负责调用官方 CLI、写入 DPI 和生成证据报告：
+本 Skill 的包装器只负责调用官方 CLI、按实际图形边界裁切、写入 DPI 和生成证据报告；禁止按整页导出造成无意义大白边：
 
 ```bash
 python scripts/export_patent_drawio.py \
   --input "<案件>/02-申请文件/说明书附图/图1.drawio" \
   --png "<案件>/02-申请文件/说明书附图/图1.png" \
-  --svg "<案件>/02-申请文件/说明书附图/图1.svg" \
   --dpi 300 \
   --report "<案件>/03-审查工作区/附图/export/图1-export.json"
 ```
@@ -145,13 +166,15 @@ python scripts/export_patent_drawio.py \
 
 - 文字清晰、无裁切或重叠；
 - 线条不交叉、不穿节点、不压文字；
-- 标签靠近正确分支，且没有无意义折返、回钩或绕行；
+- 原生线条文字位于正确分支，且不遮挡线条或节点；线路没有无意义折返、回钩或绕行；
 - 箭头方向明确；
-- 字体、字号、节点尺寸和间距一致；
+- 字体、字号、节点尺寸和间距一致，框字比例协调；
+- 所有节点文字均完整位于边界内，无裁切、溢出或依赖缩小字体硬塞；
 - 图面不拥挤，留白合理，主次层级清楚；
 - 彩色图克制且灰度可读；
 - 图号未进入画布；
-- 整体观感符合正式专利附图，而非产品宣传图。
+- 整体观感符合正式专利附图，而非产品宣传图；
+- PNG按实际图形边界导出，四边白边不超过 `png_margin_policy.maximum_margin_pixels`。
 
 结果写为 `cn-patent-drawing-visual-review/v2`，schema：
 
@@ -172,20 +195,23 @@ python scripts/verify_patent_drawings.py \
 
 - 绘图合同及来源哈希；
 - 元素、关系、标记和图号；
-- source→target 直接连接、边标签和文字中继；
+- source→target 直接连接、原生线条文字和独立标签文本框；
+- A4归一化字号、框字比例、自动换行和文本容纳高度；
 - 图型配色、渐变和阴影；
 - drawio-skill `validate.py --strict`；
 - Draw.io Desktop CLI 导出证据；
-- PNG DPI、导出哈希和视觉复核新鲜度；
+- PNG DPI、图形边界白边、导出哈希和视觉复核新鲜度；
 - v4合同的唯一问题、阅读层级、复杂度预算、独立线路通道、正常/异常出口和图文表达范围；
 - 方法流程图与权利要求架构合同的步骤集合、动作原文、判断节点和循环返回点同构；
 - v2 视觉记录的合同/导出/PNG 三重绑定、检查比例和逐项观察。
 
 退出码非零或报告 `status != PASS` 时，不得把附图交回专利起草流程。
 
+若交付包含DOCX，全部附图通过后必须重新组装DOCX、运行 `verify_docx_assembly.py`，并使用 `verify_drawing_docx_delivery.py` 证明DOCX报告中的每幅图片路径与SHA-256等于当前最终PNG。只有用户明确要求Word逐页视觉检查时，才导出PDF/逐页PNG，并提供 `cn-patent-docx-visual-review/v1` 记录。
+
 ## 约束追踪与回归证据
 
-`config/instruction-stability-contract.json` 将来源绑定、技术覆盖、直接连接、克制配色、官方导出和视觉绑定六类硬约束，逐项映射到主动 checker、正例和最小违规反例。`assets/stability/` 中的样本只用于 Skill 自身回归，不得作为客户案件的最终验收结果。正式声明多轮稳定性时，仍需由候选外评估者提供签名硬约束基线、至少三轮独立运行证据和 Skill Lint 回执。
+`config/instruction-stability-contract.json` 将来源绑定、范例样式、技术覆盖、步骤同构、直接连接、节点文字适配、PNG白边、克制配色、官方导出和视觉绑定十类硬约束，逐项映射到主动 checker、正例和最小违规反例。`assets/stability/` 中的样本只用于 Skill 自身回归，不得作为客户案件的最终验收结果。正式声明多轮稳定性时，仍需由候选外评估者提供签名硬约束基线、至少三轮独立运行证据和 Skill Lint 回执。
 
 ## 硬失败与回炉
 
@@ -204,12 +230,15 @@ python scripts/verify_patent_drawings.py \
 ├─ 02-申请文件/说明书附图/
 │  ├─ 图1-*.drawio
 │  ├─ 图1-*.png
-│  └─ 图1-*.svg                    可选
 └─ 03-审查工作区/附图/
+   ├─ style-input/                     可选：修改前母版和用户原始范例
+   ├─ drawing-style-brief.json          可选：已批准的范例样式合同
+   ├─ style-brief-validation.json       可选
    ├─ drawing-brief.json
    ├─ brief-validation.json
    ├─ preview/图1-*.png
    ├─ export/图1-export.json
    ├─ visual-review.json
-   └─ final-verification.json
+   ├─ final-verification.json
+   └─ drawing-docx-delivery-verification.json  交付DOCX时生成
 ```

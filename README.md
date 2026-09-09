@@ -55,7 +55,7 @@ $cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请
 | `cn-patent-specification-reviewer` | 定位说明书对权利要求特征的文本证据，并组织充分公开、支持和功能性限定的人工语义复核 | 说明书、权利要求特征 | 支持矩阵、说明书专项报告 |
 | `cn-patent-formalities-reviewer` | 文件组成、标题、摘要字数、章节、图号、附图标记及条件性程序事项检查 | 申请文件 manifest | 形式专项报告 |
 | `cn-patent-reviewer` | 编排三类原始检查器和独立语义审查，冻结输入、规则及前置流程证据 | 四文书、manifest、provenance 工件 | review bundle、整改顺序、独立验证报告 |
-| `cn-patent-diagram-generator` | 把 drawing brief v4、权利要求架构和特征台账转成可编辑 Draw.io 附图并进行图文一致性验收 | drawing brief、说明书、台账、架构合同 | `.drawio`、SVG/PNG、视觉复核及验证报告 |
+| `cn-patent-diagram-generator` | 分析用户修改范例，生成可批准的样式合同，并把 drawing brief v4 转成可编辑 Draw.io 附图，完成图文一致性、白边及DOCX交付绑定验收 | drawing brief、说明书、台账、架构合同；可选原图与用户范例 | style brief、`.drawio`、PNG、视觉复核、附图验证及DOCX交付验证 |
 
 各 Skill 的名称均使用 Codex 要求的全小写 hyphen-case，`SKILL.md` frontmatter 已通过 Codex Skill 校验器。
 
@@ -83,7 +83,7 @@ $cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请
 [6] 说明书、摘要与附图说明起草
       │
       ▼
-[7] drawing brief v4 → Draw.io 附图 → 视觉与图文一致性验收
+[7] 可选用户范例差异分析 → style brief v1 → drawing brief v4 → Draw.io 附图 → 视觉与图文一致性验收
       │
       ▼
 [8] 权利要求 / 说明书 / 形式原始检查
@@ -92,7 +92,7 @@ $cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请
 [9] 独立语义审查 → review bundle → verifier
       │
       ▼
-[10] 可选 DOCX 组装 → 原生 OMML 公式 → 哈希新鲜度复验
+[10] 可选 DOCX 组装 → 原生 OMML 公式 → 哈希新鲜度复验 → 附图—DOCX交付绑定验证
 ```
 
 阶段之间只通过版本化 JSON、申请文件和哈希报告交接。权利要求、说明书、台账或图片发生变化时，下游架构、附图、综合审查和 DOCX 证据按 `skills/cn-patent-workflow/references/stage-map.md` 失效并重跑。
@@ -185,4 +185,5 @@ py -m venv .venv
 - 客观约束由脚本和 JSON 合同判定，语义判断不伪装成确定性结论；
 - 形式或结构检查通过不等于申请具备新颖性、创造性或可授权性；
 - DOCX 结构检查通过不等于已经完成逐页视觉复核；
-- 新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-claim-architecture/v1`、`cn-patent-drawing-brief/v4` 和 `cn-patent-drawing-visual-review/v2`。
+- 附图节点必须通过 A4 归一化字号、框字比例、自动换行和文本容纳高度检查；不得以大框小字或缩小字号硬塞长文本。
+- 新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-claim-architecture/v1`、`cn-patent-drawing-brief/v4` 和 `cn-patent-drawing-visual-review/v2`；存在用户范例时增加已批准的 `cn-patent-drawing-style-brief/v1`。

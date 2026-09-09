@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+import importlib.util
 import json
 import re
 import sys
@@ -19,6 +20,17 @@ SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 COMPONENT_RE = re.compile(r"^[0-9]+$")
 STEP_RE = re.compile(r"^S[0-9]+$")
+STYLE_ANALYZER = Path(__file__).resolve().parent / "analyze_drawing_reference.py"
+
+
+def load_style_analyzer():
+    spec = importlib.util.spec_from_file_location("drawing_style_analyzer_for_brief", STYLE_ANALYZER)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载样式合同验证器：{STYLE_ANALYZER}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -76,8 +88,10 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
     constraints = brief.get("global_constraints")
     expected_constraints = {
         "figure_number_on_canvas": False,
-        "edge_labels_allowed": False,
+        "edge_labels_allowed": True,
         "annotation_nodes_may_be_edge_endpoints": False,
+        "native_edge_labels_required": True,
+        "separate_relation_label_nodes_allowed": False,
         "official_drawio_export_required": True,
         "visual_review_required": True,
     }
@@ -117,6 +131,58 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
     dpi = constraints.get("minimum_png_dpi", 300)
     if not isinstance(dpi, (int, float)) or isinstance(dpi, bool) or dpi < 150:
         error("BRIEF-DPI", "minimum_png_dpi 必须不小于 150")
+
+    png_margin_policy = constraints.get("png_margin_policy")
+    if not isinstance(png_margin_policy, dict):
+        error("BRIEF-PNG-MARGIN-POLICY", "缺少 png_margin_policy 对象")
+        png_margin_policy = {}
+    if png_margin_policy.get("crop_to_diagram_required") is not True:
+        error("BRIEF-PNG-MARGIN-POLICY", "png_margin_policy.crop_to_diagram_required 必须为 true")
+    margin_rules = {
+        "target_border_pixels": (0, 30),
+        "maximum_margin_pixels": (1, 60),
+        "white_threshold": (220, 255),
+    }
+    for key, (minimum, maximum) in margin_rules.items():
+        value = png_margin_policy.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
+            error("BRIEF-PNG-MARGIN-POLICY", f"png_margin_policy.{key} 必须为 {minimum}—{maximum} 的整数")
+    if isinstance(png_margin_policy.get("target_border_pixels"), int) and isinstance(png_margin_policy.get("maximum_margin_pixels"), int):
+        if png_margin_policy["target_border_pixels"] > png_margin_policy["maximum_margin_pixels"]:
+            error("BRIEF-PNG-MARGIN-POLICY", "target_border_pixels 不得大于 maximum_margin_pixels")
+
+    node_text_policy = constraints.get("node_text_policy")
+    if not isinstance(node_text_policy, dict):
+        error("BRIEF-NODE-TEXT-POLICY", "缺少 node_text_policy 对象")
+        node_text_policy = {}
+    expected_node_text_flags = {
+        "wrap_required": True,
+        "font_autoshrink_allowed": False,
+    }
+    for key, expected in expected_node_text_flags.items():
+        if node_text_policy.get(key) != expected:
+            error("BRIEF-NODE-TEXT-POLICY", f"node_text_policy.{key} 必须为 {expected!r}")
+    numeric_rules = {
+        "reference_page_width": (1, None),
+        "reference_page_height": (1, None),
+        "minimum_font_size": (12, None),
+        "maximum_width_to_font_size_ratio": (8, 30),
+        "maximum_height_to_font_size_ratio": (3, 12),
+        "horizontal_padding": (0, None),
+        "vertical_padding": (0, None),
+        "line_height_factor": (1, 2),
+        "maximum_wrapped_lines": (1, 6),
+    }
+    for key, (minimum, maximum) in numeric_rules.items():
+        value = node_text_policy.get(key)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            error("BRIEF-NODE-TEXT-POLICY", f"node_text_policy.{key} 必须是数字")
+            continue
+        if value < minimum or (maximum is not None and value > maximum):
+            suffix = f"且不大于 {maximum}" if maximum is not None else ""
+            error("BRIEF-NODE-TEXT-POLICY", f"node_text_policy.{key} 必须不小于 {minimum}{suffix}")
+    if not isinstance(node_text_policy.get("maximum_wrapped_lines"), int) or isinstance(node_text_policy.get("maximum_wrapped_lines"), bool):
+        error("BRIEF-NODE-TEXT-POLICY", "node_text_policy.maximum_wrapped_lines 必须是整数")
 
     source_artifacts = brief.get("source_artifacts")
     if not isinstance(source_artifacts, list):
@@ -185,6 +251,30 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
             output_root = resolve_under(case_dir, output_root_raw, "output_root")
         except ValueError as exc:
             error("BRIEF-OUTPUT", str(exc))
+
+    style_brief_report = None
+    style_path_raw = brief.get("style_brief_path")
+    style_sha = brief.get("style_brief_sha256")
+    if style_path_raw is not None or style_sha is not None:
+        if schema_id != SCHEMA_ID_V4:
+            error("BRIEF-STYLE", "用户范例样式合同仅支持 drawing brief v4")
+        if not isinstance(style_path_raw, str) or not style_path_raw:
+            error("BRIEF-STYLE", "style_brief_path 必须是非空字符串")
+        elif not isinstance(style_sha, str) or not SHA_RE.fullmatch(style_sha):
+            error("BRIEF-STYLE", "style_brief_sha256 必须为64位SHA-256")
+        else:
+            try:
+                style_path = resolve_under(case_dir, style_path_raw, "style_brief_path")
+                if not style_path.is_file():
+                    error("BRIEF-STYLE-MISSING", f"样式合同不存在：{style_path_raw}")
+                elif sha256(style_path) != style_sha:
+                    error("BRIEF-STYLE-STALE", "style brief SHA-256 与当前文件不一致")
+                else:
+                    style_brief_report = load_style_analyzer().validate_style_brief(style_path, case_dir, True)
+                    for item in style_brief_report.get("errors", []):
+                        error("BRIEF-STYLE-" + item.get("code", "INVALID"), item.get("message", "样式合同无效"))
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                error("BRIEF-STYLE", str(exc))
 
     figures = brief.get("figures")
     if not isinstance(figures, list) or not figures:
@@ -511,6 +601,8 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
         if not isinstance(outputs, dict):
             error("BRIEF-OUTPUT", f"图{number} 缺少 outputs")
             outputs = {}
+        if "svg" in outputs:
+            error("BRIEF-OUTPUT-OBSOLETE", f"图{number} 不再生成或登记 SVG 输出")
         for key in ("drawio", "preview_png", "final_png", "export_report"):
             raw = outputs.get(key)
             if not isinstance(raw, str) or not raw:
@@ -548,10 +640,11 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
         "errors": errors,
         "warnings": warnings,
         "evidence_scope": {
-            "proves": ["绘图合同字段、来源哈希、元素关系引用和输出路径可复算", "v3/v4的阅读层级、复杂度预算、出口和正文图示声明满足结构合同", "v4方法流程图与权利要求架构合同的步骤、判断和循环同构"],
+            "proves": ["绘图合同字段、来源哈希、元素关系引用和输出路径可复算", "v3/v4的阅读层级、复杂度预算、出口和正文图示声明满足结构合同", "节点文字适配策略字段有效", "v4方法流程图与权利要求架构合同的步骤、判断和循环同构"],
             "does_not_prove": ["最终 PNG 不存在视觉缺陷", "图示技术关系具有法律支持或创造性"],
         },
         "sources": bound_sources,
+        "style_brief_validation": style_brief_report,
         "figures": figure_reports,
     }
 
