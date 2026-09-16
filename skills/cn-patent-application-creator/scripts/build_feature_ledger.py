@@ -29,6 +29,8 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from cn_drafting_io import DraftingOutputGuard
+
 SCHEMA_ID = "cn-patent-feature-ledger/v1"
 SCHEMA_ID_V2 = "cn-patent-feature-ledger/v2"
 SUPPORTED_SCHEMA_IDS = {SCHEMA_ID, SCHEMA_ID_V2}
@@ -934,6 +936,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        inputs = [Path(args.ledger), Path(args.claims), Path(args.specification)]
+        if args.drawing_brief:
+            inputs.append(Path(args.drawing_brief))
+        outputs = [Path(args.output)] + ([Path(args.table)] if args.table else [])
+        output_guard = DraftingOutputGuard(inputs, outputs)
         ledger = load_ledger(Path(args.ledger))
         claims_text = read_text(Path(args.claims), "权利要求书")
         spec_text = read_text(Path(args.specification), "说明书")
@@ -944,7 +951,7 @@ def main(argv: list[str] | None = None) -> int:
             drawing_brief = json.loads(drawing_brief_text)
             if not isinstance(drawing_brief, dict):
                 raise LedgerError("绘图合同顶层必须是对象")
-    except (LedgerError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return EXIT_INPUT_ERROR
 
@@ -997,18 +1004,17 @@ def main(argv: list[str] | None = None) -> int:
         "findings": report.findings,
     }
 
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    print(f"[OK] 对账报告：{output_path}")
-
+    try:
+        texts = [json.dumps(payload, ensure_ascii=False, indent=2) + "\n"]
+        if args.table:
+            texts.append(render_table(ledger))
+        output_guard.write_texts(texts)
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return EXIT_INPUT_ERROR
+    print(f"[OK] 对账报告：{args.output}")
     if args.table:
-        table_path = Path(args.table)
-        table_path.parent.mkdir(parents=True, exist_ok=True)
-        table_path.write_text(render_table(ledger), encoding="utf-8")
-        print(f"[OK] 区别特征表：{table_path}")
+        print(f"[OK] 区别特征表：{args.table}")
 
     print(
         "[INFO] 特征 {} 项，权利要求 {} 项，DETERMINISTIC_FAIL {} 条，REVIEW_REQUIRED {} 条".format(

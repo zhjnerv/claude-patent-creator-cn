@@ -7,25 +7,18 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIRED_SKILLS = {
-    "cn-patent-workflow",
-    "cn-patent-application-creator",
-    "cn-patent-reviewer",
-    "cn-patent-claims-analyzer",
-    "cn-patent-specification-reviewer",
-    "cn-patent-formalities-reviewer",
-    "cn-patent-diagram-generator",
-}
+# 安装器与验证器加载同一份分发策略；不复制规则，也不依赖工作区 PYTHONPATH。
+import importlib.util
+_policy_path = Path(__file__).resolve().with_name("install_codex_skill.py")
+_policy_spec = importlib.util.spec_from_file_location("cn_codex_install_policy", _policy_path)
+if _policy_spec is None or _policy_spec.loader is None:
+    raise RuntimeError(f"无法加载分发策略：{_policy_path}")
+_policy = importlib.util.module_from_spec(_policy_spec)
+_policy_spec.loader.exec_module(_policy)
+REQUIRED_SKILLS = _policy.REQUIRED_SKILLS
+collect_source_files = _policy.collect_source_files
+
 FORBIDDEN_TOP_LEVEL = {"mcp_server", "commands"}
-IGNORED_SCAN_PARTS = {
-    ".git",
-    ".pytest_cache",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".local-case-archive",
-    "claude_patent_creator_cn.egg-info",
-}
 
 FORBIDDEN_DEPENDENCIES = {
     "torch",
@@ -38,7 +31,7 @@ FORBIDDEN_DEPENDENCIES = {
 
 
 def main() -> int:
-    errors: list[str] = []
+    files, errors = collect_source_files(ROOT, distribution_only=False)
 
     for name in sorted(REQUIRED_SKILLS):
         if not (ROOT / "skills" / name / "SKILL.md").is_file():
@@ -56,29 +49,29 @@ def main() -> int:
         "source-index.json",
     ):
         path = legal_root / relative
-        if not path.is_file() or not path.read_bytes():
-            errors.append(f"法源缺失或为空：{relative}")
+        try:
+            if path.is_symlink() or not path.is_file() or not path.read_bytes():
+                errors.append(f"法源缺失或为空：{relative}")
+        except OSError as exc:
+            errors.append(f"无法读取法源：{relative}：{exc}")
 
-    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
+    try:
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
+    except (OSError, UnicodeDecodeError) as exc:
+        errors.append(f"无法读取 pyproject.toml：{exc}")
+        pyproject = ""
     for dependency in sorted(FORBIDDEN_DEPENDENCIES):
         if f'"{dependency}' in pyproject:
             errors.append(f"不应引入主项目重型依赖：{dependency}")
 
-    for path in ROOT.rglob("*"):
+    for path in files:
+        relative = path.relative_to(ROOT)
         try:
-            relative = path.relative_to(ROOT)
-        except ValueError:
+            raw = path.read_bytes()
+            raw.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"源文件不可读取或不是 UTF-8 文本：{relative}：{exc}")
             continue
-        if any(part in IGNORED_SCAN_PARTS for part in relative.parts):
-            continue
-        if path.suffix == ".pyc" and "__pycache__" not in path.parts:
-            # __pycache__ 是 Python 运行期字节码缓存目录（.gitignore 已排除），
-            # 不属于违规缓存；只对游离在缓存目录外的 .pyc 报错，防误提交编译产物。
-            errors.append(f"存在缓存产物：{relative}")
-            continue
-        if not path.is_file():
-            continue
-        raw = path.read_bytes()
         if raw.startswith(b"\xef\xbb\xbf"):
             errors.append(f"文件含 UTF-8 BOM：{relative}")
         if path.suffix == ".json":

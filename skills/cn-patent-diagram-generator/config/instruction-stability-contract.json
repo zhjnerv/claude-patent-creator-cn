@@ -2,7 +2,7 @@
   "schema_version": 1,
   "skill": {
     "name": "cn-patent-diagram-generator",
-    "version": "4.3.0"
+    "version": "4.7.0"
   },
   "producer": {
     "id": "patent-drawing-domain-adapter",
@@ -13,6 +13,7 @@
       "scripts/verify_patent_drawings.py",
       "scripts/analyze_drawing_reference.py",
       "scripts/validate_drawing_style_brief.py",
+      "scripts/sanitize_drawing_reference.py",
       "scripts/verify_drawing_docx_delivery.py"
     ]
   },
@@ -113,6 +114,50 @@
       "timeout_seconds": 30
     },
     {
+      "id": "node-shape-check",
+      "kind": "active",
+      "modality": "geometry",
+      "artifact_stages": [
+        "final"
+      ],
+      "independent_from_producer": true,
+      "runtime": "python3",
+      "implementation": "scripts/check_stability_evidence.py",
+      "args": [
+        "--report",
+        "{artifact:verification-report}",
+        "--constraint",
+        "PATENT-DRAWING-NODE-SHAPE",
+        "--observable",
+        "node-shape-observable",
+        "--measurement",
+        "node-shape-pass"
+      ],
+      "timeout_seconds": 30
+    },
+    {
+      "id": "edge-label-readability-check",
+      "kind": "active",
+      "modality": "geometry",
+      "artifact_stages": [
+        "final"
+      ],
+      "independent_from_producer": true,
+      "runtime": "python3",
+      "implementation": "scripts/check_stability_evidence.py",
+      "args": [
+        "--report",
+        "{artifact:verification-report}",
+        "--constraint",
+        "PATENT-DRAWING-EDGE-LABEL-READABILITY",
+        "--observable",
+        "edge-label-readability-observable",
+        "--measurement",
+        "edge-label-readability-pass"
+      ],
+      "timeout_seconds": 30
+    },
+    {
       "id": "node-text-fit-check",
       "kind": "active",
       "modality": "geometry",
@@ -131,6 +176,28 @@
         "node-text-fit-observable",
         "--measurement",
         "node-text-fit-pass"
+      ],
+      "timeout_seconds": 30
+    },
+    {
+      "id": "vertical-spacing-check",
+      "kind": "active",
+      "modality": "geometry",
+      "artifact_stages": [
+        "final"
+      ],
+      "independent_from_producer": true,
+      "runtime": "python3",
+      "implementation": "scripts/check_stability_evidence.py",
+      "args": [
+        "--report",
+        "{artifact:verification-report}",
+        "--constraint",
+        "PATENT-DRAWING-VERTICAL-SPACING",
+        "--observable",
+        "vertical-spacing-observable",
+        "--measurement",
+        "vertical-spacing-pass"
       ],
       "timeout_seconds": 30
     },
@@ -317,6 +384,42 @@
       "historical_failure_known": true
     },
     {
+      "id": "PATENT-DRAWING-NODE-SHAPE",
+      "severity": "hard",
+      "requirement_type": "geometry",
+      "stage": "final",
+      "source_refs": [
+        "references/quality-gates.md#PATENT-DRAWING-NODE-SHAPE"
+      ],
+      "checker_ids": [
+        "node-shape-check"
+      ],
+      "case_ids": [
+        "positive-node-shape-check",
+        "cylinder-semantics-mismatch",
+        "cylinder-semantics-mismatch-historical"
+      ],
+      "historical_failure_known": true
+    },
+    {
+      "id": "PATENT-DRAWING-EDGE-LABEL-READABILITY",
+      "severity": "hard",
+      "requirement_type": "geometry",
+      "stage": "final",
+      "source_refs": [
+        "references/quality-gates.md#PATENT-DRAWING-EDGE-LABEL-READABILITY"
+      ],
+      "checker_ids": [
+        "edge-label-readability-check"
+      ],
+      "case_ids": [
+        "positive-edge-label-readability-check",
+        "edge-label-readability-mismatch",
+        "edge-label-readability-mismatch-historical"
+      ],
+      "historical_failure_known": true
+    },
+    {
       "id": "PATENT-DRAWING-NODE-TEXT-FIT",
       "severity": "hard",
       "requirement_type": "geometry",
@@ -330,7 +433,27 @@
       "case_ids": [
         "positive-node-text-fit-check",
         "node-text-mismatch",
+        "node-height-mismatch",
+        "chinese-wrap-mismatch",
         "node-text-mismatch-historical"
+      ],
+      "historical_failure_known": true
+    },
+    {
+      "id": "PATENT-DRAWING-VERTICAL-SPACING",
+      "severity": "hard",
+      "requirement_type": "geometry",
+      "stage": "final",
+      "source_refs": [
+        "references/quality-gates.md#PATENT-DRAWING-VERTICAL-SPACING"
+      ],
+      "checker_ids": [
+        "vertical-spacing-check"
+      ],
+      "case_ids": [
+        "positive-vertical-spacing-check",
+        "vertical-spacing-mismatch",
+        "vertical-spacing-mismatch-historical"
       ],
       "historical_failure_known": true
     },
@@ -399,6 +522,7 @@
       "case_ids": [
         "positive-style-reference-check",
         "stale-style-reference",
+        "unsafe-style-sanitization",
         "stale-style-reference-historical"
       ],
       "historical_failure_known": true
@@ -872,6 +996,222 @@
       ],
       "expected": "blocked",
       "expected_exit_code": 3
+    },
+    {
+      "id": "node-height-mismatch",
+      "kind": "mutation",
+      "constraint_ids": [
+        "PATENT-DRAWING-NODE-TEXT-FIT"
+      ],
+      "checker_ids": [
+        "node-text-fit-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/node-height-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "chinese-wrap-mismatch",
+      "kind": "mutation",
+      "constraint_ids": [
+        "PATENT-DRAWING-NODE-TEXT-FIT"
+      ],
+      "checker_ids": [
+        "node-text-fit-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/chinese-wrap-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "positive-vertical-spacing-check",
+      "kind": "positive",
+      "constraint_ids": [
+        "PATENT-DRAWING-VERTICAL-SPACING"
+      ],
+      "checker_ids": [
+        "vertical-spacing-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/positive-final-verification.json"
+        }
+      ],
+      "expected": "pass",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "vertical-spacing-mismatch",
+      "kind": "mutation",
+      "constraint_ids": [
+        "PATENT-DRAWING-VERTICAL-SPACING"
+      ],
+      "checker_ids": [
+        "vertical-spacing-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/vertical-spacing-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "vertical-spacing-mismatch-historical",
+      "kind": "historical",
+      "constraint_ids": [
+        "PATENT-DRAWING-VERTICAL-SPACING"
+      ],
+      "checker_ids": [
+        "vertical-spacing-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/vertical-spacing-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "unsafe-style-sanitization",
+      "kind": "mutation",
+      "constraint_ids": [
+        "PATENT-DRAWING-STYLE-REFERENCE"
+      ],
+      "checker_ids": [
+        "style-reference-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/unsafe-style-sanitization.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "positive-node-shape-check",
+      "kind": "positive",
+      "constraint_ids": [
+        "PATENT-DRAWING-NODE-SHAPE"
+      ],
+      "checker_ids": [
+        "node-shape-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/positive-final-verification.json"
+        }
+      ],
+      "expected": "pass",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "cylinder-semantics-mismatch",
+      "kind": "mutation",
+      "constraint_ids": [
+        "PATENT-DRAWING-NODE-SHAPE"
+      ],
+      "checker_ids": [
+        "node-shape-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/cylinder-semantics-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "positive-edge-label-readability-check",
+      "kind": "positive",
+      "constraint_ids": [
+        "PATENT-DRAWING-EDGE-LABEL-READABILITY"
+      ],
+      "checker_ids": [
+        "edge-label-readability-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/positive-final-verification.json"
+        }
+      ],
+      "expected": "pass",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "edge-label-readability-mismatch",
+      "kind": "mutation",
+      "constraint_ids": [
+        "PATENT-DRAWING-EDGE-LABEL-READABILITY"
+      ],
+      "checker_ids": [
+        "edge-label-readability-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/edge-label-readability-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "cylinder-semantics-mismatch-historical",
+      "kind": "historical",
+      "constraint_ids": [
+        "PATENT-DRAWING-NODE-SHAPE"
+      ],
+      "checker_ids": [
+        "node-shape-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/cylinder-semantics-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
+    },
+    {
+      "id": "edge-label-readability-mismatch-historical",
+      "kind": "historical",
+      "constraint_ids": [
+        "PATENT-DRAWING-EDGE-LABEL-READABILITY"
+      ],
+      "checker_ids": [
+        "edge-label-readability-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/edge-label-readability-mismatch.json"
+        }
+      ],
+      "expected": "blocked",
+      "expected_exit_code": 3
     }
   ],
   "stability": {
@@ -910,9 +1250,33 @@
         "expected": true
       },
       {
+        "id": "node-shape-pass",
+        "checker_id": "node-shape-check",
+        "constraint_id": "PATENT-DRAWING-NODE-SHAPE",
+        "value_type": "boolean",
+        "condition": "equals",
+        "expected": true
+      },
+      {
+        "id": "edge-label-readability-pass",
+        "checker_id": "edge-label-readability-check",
+        "constraint_id": "PATENT-DRAWING-EDGE-LABEL-READABILITY",
+        "value_type": "boolean",
+        "condition": "equals",
+        "expected": true
+      },
+      {
         "id": "node-text-fit-pass",
         "checker_id": "node-text-fit-check",
         "constraint_id": "PATENT-DRAWING-NODE-TEXT-FIT",
+        "value_type": "boolean",
+        "condition": "equals",
+        "expected": true
+      },
+      {
+        "id": "vertical-spacing-pass",
+        "checker_id": "vertical-spacing-check",
+        "constraint_id": "PATENT-DRAWING-VERTICAL-SPACING",
         "value_type": "boolean",
         "condition": "equals",
         "expected": true
@@ -1000,10 +1364,40 @@
         "tolerance": null
       },
       {
+        "id": "node-shape-observable",
+        "checker_id": "node-shape-check",
+        "constraint_ids": [
+          "PATENT-DRAWING-NODE-SHAPE"
+        ],
+        "comparison": "set_equal",
+        "required": true,
+        "tolerance": null
+      },
+      {
+        "id": "edge-label-readability-observable",
+        "checker_id": "edge-label-readability-check",
+        "constraint_ids": [
+          "PATENT-DRAWING-EDGE-LABEL-READABILITY"
+        ],
+        "comparison": "set_equal",
+        "required": true,
+        "tolerance": null
+      },
+      {
         "id": "node-text-fit-observable",
         "checker_id": "node-text-fit-check",
         "constraint_ids": [
           "PATENT-DRAWING-NODE-TEXT-FIT"
+        ],
+        "comparison": "set_equal",
+        "required": true,
+        "tolerance": null
+      },
+      {
+        "id": "vertical-spacing-observable",
+        "checker_id": "vertical-spacing-check",
+        "constraint_ids": [
+          "PATENT-DRAWING-VERTICAL-SPACING"
         ],
         "comparison": "set_equal",
         "required": true,

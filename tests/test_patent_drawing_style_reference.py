@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills/cn-patent-diagram-generator"
 ANALYZER = SKILL / "scripts/analyze_drawing_reference.py"
 VALIDATOR = SKILL / "scripts/validate_drawing_style_brief.py"
+SANITIZER = SKILL / "scripts/sanitize_drawing_reference.py"
 
 
 def digest(path: Path) -> str:
@@ -54,6 +55,9 @@ def test_reference_analyzer_separates_visual_intent_and_absolute_endpoint(tmp_pa
     assert len(payload["matching"]["matched_nodes"]) == 2
     assert {item["method"] for item in payload["matching"]["matched_nodes"]} == {"reference_sign"}
     assert payload["reusable_style"]["typography"]["font_size"] == 24.0
+    assert payload["reusable_style"]["compactness"]["preserve_font_size_before_compacting_nodes"] is True
+    assert payload["sanitization_plan"]["strategy"] == "rebuild_from_baseline_apply_reference_geometry"
+    assert payload["sanitization_plan"]["restore_baseline_relation_endpoints"] is True
     assert "STYLE-REFERENCE-ABSOLUTE-ENDPOINT" in {item["code"] for item in payload["structural_anomalies"]}
     assert payload["approval"]["status"] == "pending"
 
@@ -85,3 +89,89 @@ def test_style_brief_stale_reference_is_blocked(tmp_path):
     validation = run(VALIDATOR, "--style-brief", str(output), "--case-dir", str(tmp_path))
     assert validation.returncode == 2
     assert "STYLE-BRIEF-STALE" in validation.stdout
+
+
+def test_sanitizer_keeps_baseline_topology_and_drops_manual_artifacts(tmp_path):
+    baseline = tmp_path / "baseline.drawio"
+    reference = tmp_path / "reference.drawio"
+    output = tmp_path / "sanitized.drawio"
+    report = tmp_path / "sanitize-report.json"
+    write_drawio(baseline, changed_ids=False, absolute_edge=False)
+    write_drawio(reference, changed_ids=True, absolute_edge=True)
+    text = reference.read_text(encoding="utf-8")
+    text = text.replace('value="传递" edge="1"', 'value="" edge="1"')
+    text = text.replace(
+        '</root>',
+        '<mxCell id="label-R1" value="传递" style="text;html=1;" vertex="1" parent="1"><mxGeometry x="320" y="220" width="50" height="30" as="geometry"/></mxCell>'
+        '<mxCell id="extra-loop" value="" edge="1" source="new-b" target="new-b" style="edgeStyle=orthogonalEdgeStyle;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>'
+        '</root>',
+    )
+    reference.write_text(text, encoding="utf-8")
+
+    analysis_path = tmp_path / "style-brief.json"
+    assert run(
+        ANALYZER, "--baseline", str(baseline), "--reference", str(reference),
+        "--case-dir", str(tmp_path), "--case-id", "case", "--output", str(analysis_path),
+        "--approve-by", "用户",
+    ).returncode == 0
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    codes = {item["code"] for item in analysis["structural_anomalies"]}
+    assert "STYLE-REFERENCE-ABSOLUTE-ENDPOINT" in codes
+    assert "STYLE-REFERENCE-DETACHED-EDGE-LABEL" in codes
+    assert "STYLE-REFERENCE-SELF-LOOP" in codes
+
+    result = run(
+        SANITIZER, "--baseline", str(baseline), "--reference", str(reference),
+        "--output", str(output), "--report", str(report),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    sanitize_payload = json.loads(report.read_text(encoding="utf-8"))
+    assert sanitize_payload["status"] == "STRUCTURE_SAFE_VISUAL_REVIEW_REQUIRED"
+    assert sanitize_payload["visual_review_required"] is True
+    sanitized = output.read_text(encoding="utf-8")
+    assert 'id="A"' in sanitized and 'id="B"' in sanitized
+    assert 'id="new-a"' not in sanitized and 'id="label-R1"' not in sanitized and 'id="extra-loop"' not in sanitized
+    assert 'id="R1"' in sanitized and 'source="A"' in sanitized and 'target="B"' in sanitized
+    assert 'value="传递"' in sanitized
+    assert 'x="450"' in sanitized
+
+    post = tmp_path / "post-analysis.json"
+    assert run(
+        ANALYZER, "--baseline", str(baseline), "--reference", str(output),
+        "--case-dir", str(tmp_path), "--case-id", "case", "--output", str(post),
+    ).returncode == 0
+    payload = json.loads(post.read_text(encoding="utf-8"))
+    assert payload["analysis_status"] == "CLEAN_VISUAL_ONLY"
+    assert not any(payload["technical_diff"].values())
+    assert payload["structural_anomalies"] == []
+
+
+def test_style_schema_requires_safe_rebuild_contract():
+    schema = json.loads((SKILL / "references/drawing-style-brief-schema.json").read_text(encoding="utf-8"))
+    assert "sanitization_plan" in schema["required"]
+    properties = schema["properties"]["sanitization_plan"]["properties"]
+    assert properties["strategy"]["const"] == "rebuild_from_baseline_apply_reference_geometry"
+    assert properties["restore_baseline_relation_endpoints"]["const"] is True
+    assert properties["restore_native_edge_labels"]["const"] is True
+    application = schema["properties"]["application_policy"]["properties"]
+    assert application["rebuild_from_baseline"]["const"] is True
+    assert application["drop_reference_only_edges"]["const"] is True
+
+
+def test_style_validator_blocks_incomplete_sanitization_plan(tmp_path):
+    baseline = tmp_path / "baseline.drawio"
+    reference = tmp_path / "reference.drawio"
+    output = tmp_path / "style-brief.json"
+    write_drawio(baseline, changed_ids=False, absolute_edge=False)
+    write_drawio(reference, changed_ids=True, absolute_edge=True)
+    assert run(
+        ANALYZER, "--baseline", str(baseline), "--reference", str(reference),
+        "--case-dir", str(tmp_path), "--case-id", "case", "--output", str(output),
+        "--approve-by", "用户",
+    ).returncode == 0
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    payload["sanitization_plan"]["restore_baseline_relation_endpoints"] = False
+    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    validation = run(VALIDATOR, "--style-brief", str(output), "--case-dir", str(tmp_path))
+    assert validation.returncode == 2
+    assert "STYLE-BRIEF-SANITIZATION" in validation.stdout

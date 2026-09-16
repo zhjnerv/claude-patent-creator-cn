@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from cn_drafting_io import DraftingOutputGuard
+
 SCHEMA_ID = "cn-patent-claim-architecture/v1"
 REPORT_SCHEMA_ID = "cn-patent-claim-architecture-validation/v1"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -119,9 +121,17 @@ def validate_shape(contract: dict[str, Any]) -> None:
             raise ArchitectureError(f"{field} 必须是数组")
 
 
-def validate_contract(contract_path: Path, case_dir: Path, claims_path: Path, specification_path: Path) -> dict[str, Any]:
+def validate_contract(
+    contract_path: Path, case_dir: Path, claims_path: Path, specification_path: Path,
+    *, output_guard: DraftingOutputGuard | None = None,
+) -> dict[str, Any]:
     contract = load_json(contract_path, "权利要求架构合同")
     validate_shape(contract)
+    if output_guard is not None:
+        # 合同是发现间接输入的唯一入口；读取其来源正文/哈希之前先纳入输出隔离。
+        for item in contract["source_artifacts"]:
+            if isinstance(item, dict) and isinstance(item.get("path"), str) and item["path"]:
+                output_guard.protect_inputs([resolve_under(case_dir, item["path"], "来源")])
     errors: list[dict[str, str]] = []
     reviews: list[dict[str, str]] = []
 
@@ -460,17 +470,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     try:
+        output_guard = DraftingOutputGuard(
+            [args.contract, args.claims, args.specification],
+            [args.output] if args.output else [],
+        )
         report = validate_contract(
             args.contract.resolve(), args.case_dir.resolve(),
-            args.claims.resolve(), args.specification.resolve(),
+            args.claims.resolve(), args.specification.resolve(), output_guard=output_guard,
         )
         exit_code = 0 if report["status"] == "PASS" else 2
-    except (OSError, UnicodeError, json.JSONDecodeError, ArchitectureError) as exc:
+        if args.output:
+            output_guard.write_texts([json.dumps(report, ensure_ascii=False, indent=2) + "\n"])
+    except (OSError, UnicodeError, ValueError) as exc:
         report = {"schema_id": REPORT_SCHEMA_ID, "status": "FAIL", "errors": [{"code": "ARCH-INPUT", "target": "input", "message": str(exc)}], "review_required": []}
         exit_code = 3
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False))
     return exit_code
 

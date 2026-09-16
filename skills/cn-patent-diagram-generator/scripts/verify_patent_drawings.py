@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import importlib.util
 import json
 import math
@@ -24,13 +25,36 @@ DEFAULT_NODE_TEXT_POLICY = {
     "reference_page_height": 1169.0,
     "minimum_font_size": 14.0,
     "maximum_width_to_font_size_ratio": 18.0,
-    "maximum_height_to_font_size_ratio": 9.0,
+    "maximum_frame_to_text_height_ratio": 2.0,
+    "maximum_chinese_characters_per_line": 12,
     "horizontal_padding": 8.0,
     "vertical_padding": 4.0,
     "line_height_factor": 1.2,
     "maximum_wrapped_lines": 4,
     "wrap_required": True,
     "font_autoshrink_allowed": False,
+}
+
+DEFAULT_VERTICAL_SPACING_POLICY = {
+    "minimum_effective_blank_to_font_height_ratio": 2.0,
+    "maximum_effective_blank_to_font_height_ratio": 3.0,
+    "subtract_native_edge_label_text_height": True,
+    "subtract_arrowhead_height": True,
+    "default_edge_label_font_size": 12.0,
+    "default_arrowhead_height": 6.0,
+}
+
+DEFAULT_NODE_SHAPE_POLICY = {
+    "cylinder_requires_data_store_kind": True,
+    "cylinder_label_pattern": "存储|记录|数据库|数据表|缓存|仓库",
+}
+
+DEFAULT_RELATION_LABEL_POLICY = {
+    "minimum_font_to_node_font_ratio": 2.0 / 3.0,
+    "minimum_vertical_clearance_in_arrowhead_heights": 1.0,
+    "default_arrowhead_height": 6.0,
+    "centered_vertical_label_required": True,
+    "vertical_label_center_tolerance": 0.1,
 }
 
 
@@ -80,14 +104,50 @@ def parse_style(value: str) -> dict[str, str]:
     return result
 
 
-def plain_text(value: str) -> str:
-    text = re.sub(r"<br\s*/?>", "\n", value or "", flags=re.I)
+def visible_text_lines(value: str) -> list[str]:
+    """按 Draw.io 可见换行切分文本，保留显式换行所表达的版式。"""
+    text = html.unescape(value or "")
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</(?:div|p|li)\s*>", "\n", text, flags=re.I)
     text = re.sub(r"<[^>]+>", "", text)
-    return text.replace("&nbsp;", " ").strip()
+    text = text.replace("\xa0", " ").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.strip() for line in text.split("\n")]
+    return lines or [""]
+
+
+def plain_text(value: str) -> str:
+    return "\n".join(visible_text_lines(value)).strip()
+
+
+def chinese_character_count(text: str) -> int:
+    """统计汉字，不把数字、拉丁字母或中文标点计入12字上限。"""
+    ranges = (
+        (0x3400, 0x4DBF),
+        (0x4E00, 0x9FFF),
+        (0xF900, 0xFAFF),
+        (0x20000, 0x2EBEF),
+    )
+    return sum(any(start <= ord(char) <= end for start, end in ranges) for char in text)
 
 
 def compact_label(value: str) -> str:
     return re.sub(r"\s+", "", plain_text(value))
+
+
+def frozen_node_labels(element: dict[str, Any]) -> set[str]:
+    """仅允许完整合同文字及单独登记的部件标记，不开放任意前后缀。"""
+    label = compact_label(element["label"])
+    mark = compact_label(element.get("reference_sign", ""))
+    if not mark or has_reference_sign(plain_text(element["label"]), mark):
+        return {label}
+    # 兼容标记前置、后置及中英文括号；已在label中冻结的标记不得重复追加。
+    marks = (mark, f"({mark})", f"（{mark}）")
+    return {text for token in marks for text in (token + label, label + token)}
+
+
+def has_reference_sign(text: str, mark: str) -> bool:
+    """不将S100中的S10、100中的10误认作独立部件标记。"""
+    return bool(re.search(r"(?<![A-Za-z0-9])" + re.escape(mark) + r"(?![A-Za-z0-9])", text))
 
 
 def rect(cell: ET.Element) -> tuple[float, float, float, float] | None:
@@ -148,29 +208,35 @@ def estimated_line_count(text: str, width: float, font_size: float, padding: flo
     return lines
 
 
+def reference_scale(model: ET.Element, figure: dict[str, Any], policy: dict[str, Any]) -> float:
+    """返回当前画布到统一 A4 基准坐标的缩放系数。"""
+    page_width = float(model.get("pageWidth", "0"))
+    page_height = float(model.get("pageHeight", "0"))
+    if page_width <= 0 or page_height <= 0:
+        raise ValueError("Draw.io 画布宽高必须大于0")
+    ref_width = float(policy["reference_page_width"])
+    ref_height = float(policy["reference_page_height"])
+    if figure.get("orientation") == "landscape":
+        ref_width, ref_height = ref_height, ref_width
+    return min(ref_width / page_width, ref_height / page_height)
+
+
 def verify_node_text_layout(
     model: ET.Element,
     vertices: dict[str, ET.Element],
     figure: dict[str, Any],
     policy: dict[str, Any],
 ) -> list[dict[str, str]]:
-    """在统一 A4 基准坐标中检查技术节点的框字比例和文字容纳能力。"""
+    """在统一 A4 基准坐标中检查技术节点的框字比例、显式换行和文字容量。"""
     errors: list[dict[str, str]] = []
     try:
-        page_width = float(model.get("pageWidth", "0"))
-        page_height = float(model.get("pageHeight", "0"))
-        ref_width = float(policy["reference_page_width"])
-        ref_height = float(policy["reference_page_height"])
+        scale = reference_scale(model, figure, policy)
     except (KeyError, TypeError, ValueError):
         return [{"code": "DRAWING-NODE-TEXT-POLICY", "message": "无法读取画布或节点文字策略尺寸"}]
-    if page_width <= 0 or page_height <= 0:
-        return [{"code": "DRAWING-NODE-TEXT-POLICY", "message": "Draw.io 画布宽高必须大于0"}]
-    if figure.get("orientation") == "landscape":
-        ref_width, ref_height = ref_height, ref_width
-    scale = min(ref_width / page_width, ref_height / page_height)
     minimum_font = float(policy["minimum_font_size"])
     max_width_ratio = float(policy["maximum_width_to_font_size_ratio"])
-    max_height_ratio = float(policy["maximum_height_to_font_size_ratio"])
+    max_frame_text_ratio = float(policy["maximum_frame_to_text_height_ratio"])
+    max_chinese_per_line = int(policy["maximum_chinese_characters_per_line"])
     padding_x = float(policy["horizontal_padding"])
     padding_y = float(policy["vertical_padding"])
     line_height_factor = float(policy["line_height_factor"])
@@ -198,25 +264,267 @@ def verify_node_text_layout(
             })
         if policy.get("wrap_required") is True and style.get("whiteSpace") != "wrap":
             errors.append({"code": "DRAWING-TEXT-WRAP", "message": f"节点 {item['id']} 必须启用 whiteSpace=wrap"})
-        if normalized_font > 0 and (
-            width / normalized_font > max_width_ratio or height / normalized_font > max_height_ratio
-        ):
+        if normalized_font > 0 and width / normalized_font > max_width_ratio:
             errors.append({
                 "code": "DRAWING-NODE-PROPORTION",
+                "message": f"节点 {item['id']} 框字比例失衡：宽/字号={width / normalized_font:.2f}",
+            })
+
+        value = cell.get("value", "")
+        explicit_lines = visible_text_lines(value)
+        overlong_lines = [
+            (index, chinese_character_count(line))
+            for index, line in enumerate(explicit_lines, start=1)
+            if chinese_character_count(line) > max_chinese_per_line
+        ]
+        if overlong_lines:
+            details = "、".join(f"第{index}行{count}个" for index, count in overlong_lines)
+            errors.append({
+                "code": "DRAWING-CHINESE-WRAP",
                 "message": (
-                    f"节点 {item['id']} 框字比例失衡：宽/字号={width / normalized_font:.2f}，"
-                    f"高/字号={height / normalized_font:.2f}"
+                    f"节点 {item['id']} 存在超过 {max_chinese_per_line} 个汉字的可见行（{details}），"
+                    "必须使用 <br> 或换行符显式换行"
                 ),
             })
-        text = plain_text(cell.get("value", ""))
+
+        text = "\n".join(explicit_lines).strip()
         lines = estimated_line_count(text, width, max(normalized_font, 0.1), padding_x)
-        required_height = lines * normalized_font * line_height_factor + 2 * padding_y
+        text_height = max(normalized_font * line_height_factor, lines * normalized_font * line_height_factor)
+        if height > text_height * max_frame_text_ratio + 0.01:
+            errors.append({
+                "code": "DRAWING-NODE-HEIGHT",
+                "message": (
+                    f"节点 {item['id']} 外框高度 {height:.1f}px 超过文字块高度 {text_height:.1f}px 的 "
+                    f"{max_frame_text_ratio:g} 倍"
+                ),
+            })
+        required_height = text_height + 2 * padding_y
         if lines > max_lines or required_height > height + 1:
             errors.append({
                 "code": "DRAWING-TEXT-OVERFLOW",
                 "message": (
                     f"节点 {item['id']} 预计需要 {lines} 行、{required_height:.1f}px 高，"
                     f"当前归一化高度仅 {height:.1f}px"
+                ),
+            })
+    return errors
+
+
+def verify_vertical_spacing(
+    model: ET.Element,
+    vertices: dict[str, ET.Element],
+    edges: dict[str, ET.Element],
+    figure: dict[str, Any],
+    node_text_policy: dict[str, Any],
+    spacing_policy: dict[str, Any],
+) -> list[dict[str, str]]:
+    """检查纵向直连节点扣除关系标签和箭头头部后的有效空白是否为2—3倍字体行高。"""
+    errors: list[dict[str, str]] = []
+    try:
+        scale = reference_scale(model, figure, node_text_policy)
+        min_ratio = float(spacing_policy["minimum_effective_blank_to_font_height_ratio"])
+        max_ratio = float(spacing_policy["maximum_effective_blank_to_font_height_ratio"])
+        subtract_label = spacing_policy["subtract_native_edge_label_text_height"] is True
+        subtract_arrowhead = spacing_policy["subtract_arrowhead_height"] is True
+        default_edge_font = float(spacing_policy["default_edge_label_font_size"])
+        default_arrow_height = float(spacing_policy["default_arrowhead_height"])
+        line_height_factor = float(node_text_policy["line_height_factor"])
+    except (KeyError, TypeError, ValueError):
+        return [{"code": "DRAWING-VERTICAL-SPACING-POLICY", "message": "无法读取纵向节点间距策略"}]
+
+    for relation in figure["relations"]:
+        if relation.get("preferred_direction") != "vertical" or relation.get("direct_connection_required") is not True:
+            continue
+        edge = edges.get(relation["id"])
+        source = vertices.get(relation["source"])
+        target = vertices.get(relation["target"])
+        source_box = rect(source if source is not None else ET.Element("x"))
+        target_box = rect(target if target is not None else ET.Element("x"))
+        if edge is None or source is None or target is None or source_box is None or target_box is None:
+            continue
+        _, sy, _, sh = source_box
+        _, ty, _, th = target_box
+        if sy + sh <= ty:
+            raw_gap = ty - (sy + sh)
+        elif ty + th <= sy:
+            raw_gap = sy - (ty + th)
+        else:
+            continue
+
+        edge_style = parse_style(edge.get("style", ""))
+        label_height = 0.0
+        edge_value = edge.get("value", "")
+        if subtract_label and plain_text(edge_value):
+            edge_font = style_number(edge_style, "fontSize") or default_edge_font
+            label_lines = max(1, sum(1 for line in visible_text_lines(edge_value) if line))
+            label_height = label_lines * edge_font * line_height_factor
+
+        arrowhead_height = 0.0
+        if subtract_arrowhead:
+            arrowhead_height = style_number(edge_style, "endSize") or default_arrow_height
+
+        source_font = style_number(parse_style(source.get("style", "")), "fontSize")
+        target_font = style_number(parse_style(target.get("style", "")), "fontSize")
+        adjacent_fonts = [value for value in (source_font, target_font) if value is not None and value > 0]
+        if not adjacent_fonts:
+            errors.append({
+                "code": "DRAWING-VERTICAL-SPACING-POLICY",
+                "message": f"关系 {relation['id']} 的相邻节点缺少有效字号，无法计算纵向间距",
+            })
+            continue
+
+        normalized_gap = raw_gap * scale
+        normalized_label_height = label_height * scale
+        normalized_arrowhead_height = arrowhead_height * scale
+        effective_blank = max(0.0, normalized_gap - normalized_label_height - normalized_arrowhead_height)
+        font_line_height = min(adjacent_fonts) * line_height_factor * scale
+        minimum_blank = font_line_height * min_ratio
+        maximum_blank = font_line_height * max_ratio
+        details = (
+            f"关系 {relation['id']} 两节点净距 {normalized_gap:.1f}px，扣除关系标签 "
+            f"{normalized_label_height:.1f}px 和箭头头部 {normalized_arrowhead_height:.1f}px 后，"
+            f"有效空白 {effective_blank:.1f}px；相邻节点较小字体行高 {font_line_height:.1f}px"
+        )
+        if effective_blank + 0.01 < minimum_blank:
+            errors.append({
+                "code": "DRAWING-VERTICAL-SPACING-MIN",
+                "message": f"{details}，小于2倍字体行高下限 {minimum_blank:.1f}px",
+            })
+        if effective_blank > maximum_blank + 0.01:
+            errors.append({
+                "code": "DRAWING-VERTICAL-SPACING-MAX",
+                "message": f"{details}，超过3倍字体行高上限 {maximum_blank:.1f}px",
+            })
+    return errors
+
+
+def verify_node_shapes(
+    vertices: dict[str, ET.Element],
+    figure: dict[str, Any],
+    policy: dict[str, Any],
+) -> list[dict[str, str]]:
+    """校验命名及显式外框的判断、起止、存储语义，不把形状当装饰。"""
+    errors: list[dict[str, str]] = []
+    element_by_id = {item["id"]: item for item in figure["elements"]}
+    label_pattern = re.compile(str(policy["cylinder_label_pattern"]))
+    for node_id, cell in vertices.items():
+        named_shapes = {"ellipse", "rhombus", "cylinder", "cylinder3", "rectangle"}
+        shape = "rectangle"
+        for part in cell.get("style", "").split(";"):
+            if part in named_shapes:
+                shape = part
+            elif part.startswith("shape="):
+                shape = part.split("=", 1)[1]
+        element = element_by_id.get(node_id) or {}
+        kind = element.get("kind")
+        if kind == "decision" and shape != "rhombus":
+            errors.append({"code": "DRAWING-SHAPE-SEMANTICS", "message": f"判断节点 {node_id} 必须保留菱形节点外框"})
+        if kind and kind != "decision" and shape == "rhombus":
+            errors.append({"code": "DRAWING-SHAPE-SEMANTICS", "message": f"非判断节点 {node_id} 不得使用菱形节点外框"})
+        if kind == "start_end" and shape not in {"ellipse", "rectangle"}:
+            errors.append({"code": "DRAWING-SHAPE-SEMANTICS", "message": f"开始／结束节点 {node_id} 的节点外框与合同语义不一致"})
+        if shape not in {"cylinder", "cylinder3"}:
+            continue
+        element = element_by_id.get(node_id) or {}
+        label = plain_text(cell.get("value", ""))
+        if policy.get("cylinder_requires_data_store_kind") is True and element.get("kind") != "data_store":
+            errors.append({
+                "code": "DRAWING-CYLINDER-SEMANTICS",
+                "message": f"节点 {node_id} 使用圆柱形，但drawing brief中的kind不是data_store",
+            })
+        if not label_pattern.search(label):
+            errors.append({
+                "code": "DRAWING-CYLINDER-SEMANTICS",
+                "message": f"节点 {node_id} 使用圆柱形，但节点文字未明确表达存储或记录语义：{label}",
+            })
+    return errors
+
+
+def verify_relation_labels(
+    model: ET.Element,
+    vertices: dict[str, ET.Element],
+    edges: dict[str, ET.Element],
+    figure: dict[str, Any],
+    node_text_policy: dict[str, Any],
+    policy: dict[str, Any],
+) -> list[dict[str, str]]:
+    """检查原生关系标签字号和纵向关系中的上下净空。"""
+    errors: list[dict[str, str]] = []
+    try:
+        scale = reference_scale(model, figure, node_text_policy)
+        minimum_ratio = float(policy["minimum_font_to_node_font_ratio"])
+        clearance_multiple = float(policy["minimum_vertical_clearance_in_arrowhead_heights"])
+        default_arrow_height = float(policy["default_arrowhead_height"])
+        center_tolerance = float(policy["vertical_label_center_tolerance"])
+        line_height_factor = float(node_text_policy["line_height_factor"])
+    except (KeyError, TypeError, ValueError):
+        return [{"code": "DRAWING-RELATION-LABEL-POLICY", "message": "无法读取原生关系标签策略"}]
+
+    for relation in figure["relations"]:
+        label = str(relation.get("label") or "").strip()
+        if not label:
+            continue
+        edge = edges.get(relation["id"])
+        source = vertices.get(relation["source"])
+        target = vertices.get(relation["target"])
+        if edge is None or source is None or target is None:
+            continue
+        edge_style = parse_style(edge.get("style", ""))
+        edge_font = style_number(edge_style, "fontSize")
+        source_font = style_number(parse_style(source.get("style", "")), "fontSize")
+        target_font = style_number(parse_style(target.get("style", "")), "fontSize")
+        if edge_font is None or edge_font <= 0:
+            errors.append({"code": "DRAWING-EDGE-LABEL-FONT", "message": f"关系 {relation['id']} 必须显式设置原生关系标签字号"})
+            continue
+        adjacent_fonts = [value for value in (source_font, target_font) if value is not None and value > 0]
+        if adjacent_fonts:
+            minimum_font = min(adjacent_fonts) * minimum_ratio
+            if edge_font + 0.01 < minimum_font:
+                errors.append({
+                    "code": "DRAWING-EDGE-LABEL-FONT",
+                    "message": (
+                        f"关系 {relation['id']} 标签字号 {edge_font:g} 小于相邻节点字号的 "
+                        f"{minimum_ratio:.3f} 倍下限 {minimum_font:.2f}"
+                    ),
+                })
+
+        source_box, target_box = rect(source), rect(target)
+        if source_box is None or target_box is None:
+            continue
+        sx, sy, sw, sh = source_box
+        tx, ty, tw, th = target_box
+        horizontal_overlap = min(sx + sw, tx + tw) - max(sx, tx)
+        if horizontal_overlap <= 0:
+            continue
+        if sy + sh <= ty:
+            raw_gap = ty - (sy + sh)
+        elif ty + th <= sy:
+            raw_gap = sy - (ty + th)
+        else:
+            continue
+        geometry = edge.find("mxGeometry")
+        relative_position = 0.0
+        if geometry is not None and geometry.get("x") not in {None, ""}:
+            try:
+                relative_position = float(geometry.get("x", "0"))
+            except ValueError:
+                relative_position = 0.0
+        if policy.get("centered_vertical_label_required") is True and abs(relative_position) > center_tolerance:
+            errors.append({
+                "code": "DRAWING-EDGE-LABEL-CLEARANCE",
+                "message": f"关系 {relation['id']} 的原生关系标签未位于上下节点间距中央：relative x={relative_position:g}",
+            })
+        label_lines = max(1, sum(1 for line in visible_text_lines(edge.get("value", "")) if line))
+        label_height = label_lines * edge_font * line_height_factor * scale
+        arrow_height = (style_number(edge_style, "endSize") or default_arrow_height) * scale
+        clearance = (raw_gap * scale - label_height) / 2
+        required_clearance = arrow_height * clearance_multiple
+        if clearance + 0.01 < required_clearance:
+            errors.append({
+                "code": "DRAWING-EDGE-LABEL-CLEARANCE",
+                "message": (
+                    f"关系 {relation['id']} 标签上下净空各约 {clearance:.1f}px，小于一个箭头头部高度 "
+                    f"{required_clearance:.1f}px"
                 ),
             })
     return errors
@@ -274,6 +582,9 @@ def verify_drawio(
     color_policy: dict[str, Any],
     drawio_skill: Path,
     node_text_policy: dict[str, Any] | None = None,
+    vertical_spacing_policy: dict[str, Any] | None = None,
+    node_shape_policy: dict[str, Any] | None = None,
+    relation_label_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[dict[str, str]] = []
 
@@ -315,10 +626,11 @@ def verify_drawio(
         if cell is None:
             continue
         text = plain_text(cell.get("value", ""))
-        if item["label"] not in text:
-            error("DRAWING-LABEL", f"元素 {item['id']} 缺少合同标签：{item['label']}")
-        mark = item.get("reference_sign")
-        if mark and mark not in text:
+        matches_frozen_text = compact_label(text) in frozen_node_labels(item)
+        if not matches_frozen_text:
+            error("DRAWING-LABEL", f"元素 {item['id']} 的完整节点文字与合同不一致：{text!r}，合同标签：{item['label']!r}")
+        mark = compact_label(item.get("reference_sign", ""))
+        if mark and not matches_frozen_text and not has_reference_sign(text, mark):
             error("DRAWING-MARK", f"元素 {item['id']} 缺少标记：{mark}")
 
     visible_text_ids = {
@@ -326,7 +638,12 @@ def verify_drawio(
         if "text;" in cell.get("style", "") and plain_text(cell.get("value", ""))
     }
     for edge_id, edge in edges.items():
-        if edge.get("source") in visible_text_ids or edge.get("target") in visible_text_ids:
+        source, target = edge.get("source"), edge.get("target")
+        if not source or not target:
+            error("DRAWING-ABSOLUTE-ENDPOINT", f"边 {edge_id} 缺少 source 或 target，不得以绝对端点代替真实连接")
+        if source and source == target:
+            error("DRAWING-SELF-LOOP", f"边 {edge_id} 出现未登记自连接")
+        if source in visible_text_ids or target in visible_text_ids:
             error("DRAWING-TEXT-WAYPOINT", f"边 {edge_id} 使用可见文字节点作为端点")
         if edge_id not in relation_ids:
             error("DRAWING-EXTRA", f"图中存在合同外技术关系：{edge_id}")
@@ -340,6 +657,11 @@ def verify_drawio(
             continue
         if edge.get("source") != relation["source"] or edge.get("target") != relation["target"]:
             error("DRAWING-RELATION", f"关系 {relation['id']} 的 source/target 与合同不一致")
+        style = parse_style(edge.get("style", ""))
+        # Draw.io默认在target端使用classic箭头；source端箭头会改变或混淆有向关系。
+        directional_arrows = {"classic", "classicThin", "block", "blockThin", "open", "openThin", "async"}
+        if style.get("startArrow", "none") != "none" or style.get("endArrow", "classic") not in directional_arrows:
+            error("DRAWING-ARROW-DIRECTION", f"关系 {relation['id']} 的箭头必须仅指向合同target，不能反向、双向或无方向")
         label = relation.get("label", "").strip()
         edge_label = compact_label(edge.get("value", ""))
         if label and edge_label != compact_label(label):
@@ -391,7 +713,25 @@ def verify_drawio(
     if len(nonwhite_fills) > color_policy["max_nonwhite_fills"]:
         error("DRAWING-COLOR", f"非白填充色超过上限：{sorted(nonwhite_fills)}")
 
-    errors.extend(verify_node_text_layout(model, vertices, figure, node_text_policy or DEFAULT_NODE_TEXT_POLICY))
+    resolved_node_text_policy = node_text_policy or DEFAULT_NODE_TEXT_POLICY
+    errors.extend(verify_node_text_layout(model, vertices, figure, resolved_node_text_policy))
+    errors.extend(verify_vertical_spacing(
+        model,
+        vertices,
+        edges,
+        figure,
+        resolved_node_text_policy,
+        vertical_spacing_policy or DEFAULT_VERTICAL_SPACING_POLICY,
+    ))
+    errors.extend(verify_node_shapes(vertices, figure, node_shape_policy or DEFAULT_NODE_SHAPE_POLICY))
+    errors.extend(verify_relation_labels(
+        model,
+        vertices,
+        edges,
+        figure,
+        resolved_node_text_policy,
+        relation_label_policy or DEFAULT_RELATION_LABEL_POLICY,
+    ))
 
     lint = run_drawio_lint(drawio_skill, path)
     if lint["exit_code"] != 0 or lint["report"].get("errors") or lint["report"].get("warnings"):
@@ -498,6 +838,9 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
             brief["global_constraints"]["color_policy"],
             drawio_skill,
             brief["global_constraints"]["node_text_policy"],
+            brief["global_constraints"]["vertical_spacing_policy"],
+            brief["global_constraints"]["node_shape_policy"],
+            brief["global_constraints"]["relation_label_policy"],
         )
         errors.extend(drawio_report["errors"])
         export = load_json(paths["export_report"], f"图{number} export-report")
@@ -597,7 +940,7 @@ def verify(brief_path: Path, case_dir: Path, drawio_skill_dir: Path | None) -> d
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "evidence_scope": {
-            "proves": ["绘图合同和来源哈希有效", "当前 Draw.io 母版可复算得到当前最终 PNG", "技术节点字号、框字比例和估算文本容量满足合同", "视觉复核记录绑定当前合同、导出报告和最终 PNG", "逐项视觉检查均有观察记录"],
+            "proves": ["绘图合同和来源哈希有效", "当前 Draw.io 母版可复算得到当前最终 PNG", "技术节点字号、框字比例、显式中文换行、节点形状、关系标签字号与净空、估算文本容量和纵向空白间距满足合同", "视觉复核记录绑定当前合同、导出报告和最终 PNG", "逐项视觉检查均有观察记录"],
             "does_not_prove": ["图示技术方案具备新颖性或创造性", "说明书和权利要求的法律支持关系已经成立", "未由复核者实际观察到的视觉事实"],
         },
         "brief_validation": brief_report,

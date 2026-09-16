@@ -103,13 +103,33 @@ def create_brief(case: Path, sources: dict[str, Path]) -> Path:
                 "reference_page_height": 1169,
                 "minimum_font_size": 14,
                 "maximum_width_to_font_size_ratio": 18,
-                "maximum_height_to_font_size_ratio": 9,
+                "maximum_frame_to_text_height_ratio": 2,
+                "maximum_chinese_characters_per_line": 12,
                 "horizontal_padding": 8,
                 "vertical_padding": 4,
                 "line_height_factor": 1.2,
                 "maximum_wrapped_lines": 4,
                 "wrap_required": True,
                 "font_autoshrink_allowed": False,
+            },
+            "vertical_spacing_policy": {
+                "minimum_effective_blank_to_font_height_ratio": 2,
+                "maximum_effective_blank_to_font_height_ratio": 3,
+                "subtract_native_edge_label_text_height": True,
+                "subtract_arrowhead_height": True,
+                "default_edge_label_font_size": 12,
+                "default_arrowhead_height": 6,
+            },
+            "node_shape_policy": {
+                "cylinder_requires_data_store_kind": True,
+                "cylinder_label_pattern": "存储|记录|数据库|数据表|缓存|仓库",
+            },
+            "relation_label_policy": {
+                "minimum_font_to_node_font_ratio": 0.6666666666666666,
+                "minimum_vertical_clearance_in_arrowhead_heights": 1,
+                "default_arrowhead_height": 6,
+                "centered_vertical_label_required": True,
+                "vertical_label_center_tolerance": 0.1,
             },
         },
         "visual_review_path": "03-审查工作区/附图/visual-review.json",
@@ -148,11 +168,27 @@ def create_valid_drawio(path: Path) -> None:
     write(path, """<mxfile compressed="false"><diagram name="条件处理流程图"><mxGraphModel pageWidth="827" pageHeight="1169"><root>
     <mxCell id="0"/><mxCell id="1" parent="0"/>
     <mxCell id="S100" value="S100&lt;br&gt;开始处理" style="ellipse;whiteSpace=wrap;html=1;fillColor=#EAF2F8;strokeColor=#405F73;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="80" width="220" height="70" as="geometry"/></mxCell>
-    <mxCell id="S110" value="S110&lt;br&gt;条件校验" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F8F2E6;strokeColor=#706347;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="240" width="220" height="90" as="geometry"/></mxCell>
-    <mxCell id="S120" value="S120&lt;br&gt;执行处理" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF2F8;strokeColor=#405F73;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="430" width="220" height="70" as="geometry"/></mxCell>
-    <mxCell id="R1" edge="1" source="S100" target="S110" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
-    <mxCell id="R2" value="是" edge="1" source="S110" target="S120" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="S110" value="S110&lt;br&gt;条件校验" style="rhombus;whiteSpace=wrap;html=1;fillColor=#F8F2E6;strokeColor=#706347;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="200" width="220" height="70" as="geometry"/></mxCell>
+    <mxCell id="S120" value="S120&lt;br&gt;执行处理" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF2F8;strokeColor=#405F73;fontColor=#111111;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="324" width="220" height="70" as="geometry"/></mxCell>
+    <mxCell id="R1" edge="1" source="S100" target="S110" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;fontSize=10;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="R2" value="是" edge="1" source="S110" target="S120" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;fontSize=10;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
     </root></mxGraphModel></diagram></mxfile>""")
+
+
+def basic_figure() -> dict:
+    return {
+        "figure_number": 1,
+        "orientation": "portrait",
+        "elements": [
+            {"id": "S100", "label": "开始处理", "reference_sign": "S100"},
+            {"id": "S110", "label": "条件校验", "reference_sign": "S110"},
+            {"id": "S120", "label": "执行处理", "reference_sign": "S120"},
+        ],
+        "relations": [
+            {"id": "R1", "source": "S100", "target": "S110", "preferred_direction": "vertical", "direct_connection_required": True},
+            {"id": "R2", "source": "S110", "target": "S120", "label": "是", "preferred_direction": "vertical", "direct_connection_required": True},
+        ],
+    }
 
 
 def test_brief_validator_binds_sources_and_rejects_stale_hash(tmp_path):
@@ -188,7 +224,7 @@ def test_historical_source_label_target_route_is_rejected(tmp_path):
     drawing.write_text("""<mxfile compressed="false"><diagram name="bad"><mxGraphModel pageWidth="827" pageHeight="1169"><root>
     <mxCell id="0"/><mxCell id="1" parent="0"/>
     <mxCell id="S100" value="S100 开始处理" style="rounded=0;fillColor=#EAF2F8;strokeColor=#405F73;" vertex="1" parent="1"><mxGeometry x="300" y="80" width="220" height="70" as="geometry"/></mxCell>
-    <mxCell id="S110" value="S110 条件校验" style="rhombus;fillColor=#F8F2E6;strokeColor=#706347;" vertex="1" parent="1"><mxGeometry x="300" y="240" width="220" height="90" as="geometry"/></mxCell>
+    <mxCell id="S110" value="S110 条件校验" style="rhombus;fillColor=#F8F2E6;strokeColor=#706347;" vertex="1" parent="1"><mxGeometry x="300" y="200" width="220" height="70" as="geometry"/></mxCell>
     <mxCell id="label-R1" value="是" style="text;html=1;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1"><mxGeometry x="350" y="180" width="45" height="28" as="geometry"/></mxCell>
     <mxCell id="R1" edge="1" source="S100" target="label-R1" style="edgeStyle=orthogonalEdgeStyle;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
     <mxCell id="R1b" edge="1" source="label-R1" target="S110" style="edgeStyle=orthogonalEdgeStyle;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
@@ -206,6 +242,20 @@ def test_historical_source_label_target_route_is_rejected(tmp_path):
     assert "DRAWING-TEXT-WAYPOINT" in codes
     assert "DRAWING-RELATION" in codes
 
+
+
+def test_absolute_endpoint_and_self_loop_are_rejected(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_endpoint_safety")
+    drawing = tmp_path / "endpoint-safety.drawio"
+    create_valid_drawio(drawing)
+    text = drawing.read_text(encoding="utf-8")
+    text = text.replace('id="R1" edge="1" source="S100" target="S110"', 'id="R1" edge="1" source="S100"')
+    text = text.replace('id="R2" value="是" edge="1" source="S110" target="S120"', 'id="R2" value="是" edge="1" source="S110" target="S110"')
+    drawing.write_text(text, encoding="utf-8")
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    codes = {item["code"] for item in report["errors"]}
+    assert "DRAWING-ABSOLUTE-ENDPOINT" in codes
+    assert "DRAWING-SELF-LOOP" in codes
 
 
 def test_detached_relation_label_is_rejected(tmp_path):
@@ -255,8 +305,8 @@ def test_oversized_node_with_small_font_is_rejected(tmp_path):
     drawing = tmp_path / "large-box.drawio"
     create_valid_drawio(drawing)
     text = drawing.read_text(encoding="utf-8").replace(
-        'x="300" y="430" width="220" height="70"',
-        'x="120" y="430" width="600" height="120"',
+        'x="300" y="324" width="220" height="70"',
+        'x="120" y="280" width="600" height="120"',
     )
     drawing.write_text(text, encoding="utf-8")
     figure = {
@@ -284,8 +334,8 @@ def test_text_overflow_is_rejected(tmp_path):
         'value="S120&lt;br&gt;执行处理"',
         'value="S120&lt;br&gt;这是一个明显无法容纳在当前狭小方框中的超长技术动作文字"',
     ).replace(
-        'x="300" y="430" width="220" height="70"',
-        'x="360" y="430" width="100" height="45"',
+        'x="300" y="324" width="220" height="70"',
+        'x="360" y="280" width="100" height="45"',
     )
     drawing.write_text(text, encoding="utf-8")
     figure = {
@@ -305,6 +355,172 @@ def test_text_overflow_is_rejected(tmp_path):
     assert any(item["code"] == "DRAWING-TEXT-OVERFLOW" for item in report["errors"])
 
 
+def test_frame_height_cannot_exceed_twice_text_height(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_frame_height")
+    drawing = tmp_path / "frame-height.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'x="300" y="324" width="220" height="70"',
+            'x="300" y="280" width="220" height="80"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-NODE-HEIGHT" for item in report["errors"])
+
+
+def test_frame_height_equal_to_twice_text_height_is_allowed(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_frame_height_boundary")
+    drawing = tmp_path / "frame-height-boundary.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'x="300" y="324" width="220" height="70"',
+            'x="300" y="280" width="220" height="72"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert not any(item["code"] == "DRAWING-NODE-HEIGHT" for item in report["errors"])
+
+
+def test_more_than_twelve_chinese_characters_require_explicit_wrap(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_chinese_wrap")
+    drawing = tmp_path / "chinese-wrap.drawio"
+    create_valid_drawio(drawing)
+    label = "一二三四五六七八九十甲乙丙"
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'value="S120&lt;br&gt;执行处理"',
+            f'value="S120&lt;br&gt;{label}"',
+        ),
+        encoding="utf-8",
+    )
+    figure = basic_figure()
+    figure["elements"][2]["label"] = label
+    report = verifier.verify_drawio(drawing, figure, restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-CHINESE-WRAP" for item in report["errors"])
+
+
+def test_exactly_twelve_chinese_characters_can_remain_on_one_line(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_chinese_wrap_boundary")
+    drawing = tmp_path / "chinese-wrap-boundary.drawio"
+    create_valid_drawio(drawing)
+    label = "一二三四五六七八九十甲乙"
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'value="S120&lt;br&gt;执行处理"',
+            f'value="S120&lt;br&gt;{label}"',
+        ),
+        encoding="utf-8",
+    )
+    figure = basic_figure()
+    figure["elements"][2]["label"] = label
+    report = verifier.verify_drawio(drawing, figure, restrained_policy(), DRAWIO_SKILL)
+    assert not any(item["code"] == "DRAWING-CHINESE-WRAP" for item in report["errors"])
+
+
+def test_explicit_wrap_keeps_source_label_match_and_passes_chinese_limit(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_explicit_chinese_wrap")
+    drawing = tmp_path / "explicit-chinese-wrap.drawio"
+    create_valid_drawio(drawing)
+    label = "一二三四五六七八九十甲乙丙"
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'value="S120&lt;br&gt;执行处理"',
+            'value="S120&lt;br&gt;一二三四五六七&lt;br&gt;八九十甲乙丙"',
+        ),
+        encoding="utf-8",
+    )
+    figure = basic_figure()
+    figure["elements"][2]["label"] = label
+    report = verifier.verify_drawio(drawing, figure, restrained_policy(), DRAWIO_SKILL)
+    codes = {item["code"] for item in report["errors"]}
+    assert "DRAWING-LABEL" not in codes
+    assert "DRAWING-CHINESE-WRAP" not in codes
+
+
+def test_vertical_spacing_accepts_minimum_two_font_heights_after_arrowhead(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_spacing_min_boundary")
+    drawing = tmp_path / "spacing-min-boundary.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'x="300" y="200" width="220" height="70"',
+            'x="300" y="192" width="220" height="70"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert not any(item["code"].startswith("DRAWING-VERTICAL-SPACING") for item in report["errors"])
+
+
+def test_vertical_spacing_accepts_maximum_three_font_heights_after_arrowhead(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_spacing_max_boundary")
+    drawing = tmp_path / "spacing-max-boundary.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8")
+        .replace(
+            'x="300" y="200" width="220" height="70"',
+            'x="300" y="210" width="220" height="70"',
+        )
+        .replace(
+            'x="300" y="324" width="220" height="70"',
+            'x="300" y="334" width="220" height="70"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert not any(item["code"].startswith("DRAWING-VERTICAL-SPACING") for item in report["errors"])
+
+
+def test_vertical_spacing_subtracts_native_label_and_arrowhead(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_edge_label_spacing")
+    drawing = tmp_path / "edge-label-spacing.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'x="300" y="324" width="220" height="70"',
+            'x="300" y="342" width="220" height="70"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert not any(item["code"].startswith("DRAWING-VERTICAL-SPACING") for item in report["errors"])
+
+
+def test_vertical_spacing_rejects_less_than_two_font_heights(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_too_tight_spacing")
+    drawing = tmp_path / "too-tight-spacing.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'x="300" y="200" width="220" height="70"',
+            'x="300" y="191" width="220" height="70"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-VERTICAL-SPACING-MIN" for item in report["errors"])
+
+
+def test_vertical_spacing_rejects_more_than_three_font_heights(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_excessive_spacing")
+    drawing = tmp_path / "excessive-spacing.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'x="300" y="200" width="220" height="70"',
+            'x="300" y="211" width="220" height="70"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-VERTICAL-SPACING-MAX" for item in report["errors"])
+
+
 def make_rgb_png(path: Path, width: int, height: int, black_box: tuple[int, int, int, int]) -> None:
     exporter = load_module(EXPORTER, "patent_png_writer")
     left, top, right, bottom = black_box
@@ -322,6 +538,59 @@ def make_rgb_png(path: Path, width: int, height: int, black_box: tuple[int, int,
         + exporter.chunk(b"IDAT", zlib.compress(b"".join(rows)))
         + exporter.chunk(b"IEND", b"")
     )
+
+
+def test_cylinder_requires_explicit_storage_semantics(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_cylinder_semantics")
+    drawing = tmp_path / "cylinder-semantics.drawio"
+    create_valid_drawio(drawing)
+    text = drawing.read_text(encoding="utf-8").replace(
+        'id="S120" value="S120&lt;br&gt;执行处理" style="rounded=0;',
+        'id="S120" value="S120&lt;br&gt;执行处理" style="shape=cylinder3;boundedLbl=1;',
+    )
+    drawing.write_text(text, encoding="utf-8")
+    figure = basic_figure()
+    figure["elements"][2]["kind"] = "step"
+    report = verifier.verify_drawio(drawing, figure, restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-CYLINDER-SEMANTICS" for item in report["errors"])
+
+
+def test_relation_label_font_must_be_two_thirds_of_node_font(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_edge_label_font")
+    drawing = tmp_path / "edge-label-font.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace('endFill=1;fontSize=10;', 'endFill=1;fontSize=9;'),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-EDGE-LABEL-FONT" for item in report["errors"])
+
+
+def test_relation_label_requires_one_arrowhead_height_above_and_below(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_edge_label_clearance")
+    drawing = tmp_path / "edge-label-clearance.drawio"
+    create_valid_drawio(drawing)
+    drawing.write_text(
+        drawing.read_text(encoding="utf-8").replace(
+            'x="300" y="324" width="220" height="70"',
+            'x="300" y="270" width="220" height="70"',
+        ),
+        encoding="utf-8",
+    )
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    assert any(item["code"] == "DRAWING-EDGE-LABEL-CLEARANCE" for item in report["errors"])
+
+
+def test_relation_label_exact_two_thirds_and_clearance_boundary_are_allowed(tmp_path):
+    verifier = load_module(VERIFIER, "patent_drawing_verifier_edge_label_boundary")
+    drawing = tmp_path / "edge-label-boundary.drawio"
+    create_valid_drawio(drawing)
+    # 节点字号15、标签字号10，正好为2/3；30px净距扣除12px文字块后，上下各9px，大于6px箭头高度。
+    report = verifier.verify_drawio(drawing, basic_figure(), restrained_policy(), DRAWIO_SKILL)
+    codes = {item["code"] for item in report["errors"]}
+    assert "DRAWING-EDGE-LABEL-FONT" not in codes
+    assert "DRAWING-EDGE-LABEL-CLEARANCE" not in codes
 
 
 def test_png_margin_inspector_detects_excessive_white_border(tmp_path):
@@ -440,7 +709,10 @@ def test_official_cli_export_and_final_verifier_pass(tmp_path):
         ("PATENT-DRAWING-TECH-COVERAGE", "tech-coverage-observable", "tech-coverage-pass", "missing-element.json"),
         ("PATENT-DRAWING-STEP-ISOMORPHISM", "step-isomorphism-observable", "step-isomorphism-pass", "step-isomorphism-mismatch.json"),
         ("PATENT-DRAWING-DIRECT-CONNECTOR", "direct-connector-observable", "direct-connector-pass", "detached-edge-label.json"),
+        ("PATENT-DRAWING-NODE-SHAPE", "node-shape-observable", "node-shape-pass", "cylinder-semantics-mismatch.json"),
+        ("PATENT-DRAWING-EDGE-LABEL-READABILITY", "edge-label-readability-observable", "edge-label-readability-pass", "edge-label-readability-mismatch.json"),
         ("PATENT-DRAWING-NODE-TEXT-FIT", "node-text-fit-observable", "node-text-fit-pass", "node-text-mismatch.json"),
+        ("PATENT-DRAWING-VERTICAL-SPACING", "vertical-spacing-observable", "vertical-spacing-pass", "vertical-spacing-mismatch.json"),
         ("PATENT-DRAWING-PNG-MARGIN", "png-margin-observable", "png-margin-pass", "excessive-margin.json"),
         ("PATENT-DRAWING-COLOR", "color-observable", "color-pass", "flashy-color.json"),
         ("PATENT-DRAWING-OFFICIAL-EXPORT", "official-export-observable", "official-export-pass", "forged-export.json"),
@@ -483,7 +755,10 @@ def test_stability_contract_covers_all_hard_constraints():
         "PATENT-DRAWING-TECH-COVERAGE",
         "PATENT-DRAWING-STEP-ISOMORPHISM",
         "PATENT-DRAWING-DIRECT-CONNECTOR",
+        "PATENT-DRAWING-NODE-SHAPE",
+        "PATENT-DRAWING-EDGE-LABEL-READABILITY",
         "PATENT-DRAWING-NODE-TEXT-FIT",
+        "PATENT-DRAWING-VERTICAL-SPACING",
         "PATENT-DRAWING-PNG-MARGIN",
         "PATENT-DRAWING-COLOR",
         "PATENT-DRAWING-OFFICIAL-EXPORT",
@@ -494,7 +769,7 @@ def test_stability_contract_covers_all_hard_constraints():
 def test_skill_is_domain_adapter_for_drawio_skill():
     skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     for required in (
-        'version: "4.3.0"', "drawio-skill", "cn-patent-drawing-brief/v4",
+        'version: "4.7.0"', "drawio-skill", "cn-patent-drawing-brief/v4",
         "Draw.io Desktop CLI", "patent_restrained_color", "verify_patent_drawings.py",
     ):
         assert required in skill

@@ -106,6 +106,25 @@ def match_nodes(old: list[dict[str, Any]], new: list[dict[str, Any]]) -> tuple[l
         for key in sorted(set(old_index) & set(new_index)):
             if len(old_index[key]) == len(new_index[key]) == 1:
                 bind(old_index[key][0], new_index[key][0], method)
+
+    # 手工编辑常把原生 edge label 变成零尺寸文字节点，导致同名技术节点无法按标签唯一匹配。
+    # 当同名候选中只有一个具有实际框体时，优先把它识别为技术节点，剩余零尺寸节点留作异常处理。
+    for left in list(unmatched_old.values()):
+        geometry_value = left.get("geometry") or {}
+        if not left.get("compact") or geometry_value.get("width", 0) <= 0 or geometry_value.get("height", 0) <= 0:
+            continue
+        candidates = []
+        for right in unmatched_new.values():
+            right_geometry = right.get("geometry") or {}
+            if (
+                right.get("compact") == left["compact"]
+                and right_geometry.get("width", 0) > 0
+                and right_geometry.get("height", 0) > 0
+                and "text" not in (right.get("style") or {})
+            ):
+                candidates.append(right)
+        if len(candidates) == 1:
+            bind(left, candidates[0], "visible_label_shape")
     return matches, list(unmatched_old.values()), list(unmatched_new.values())
 
 
@@ -136,6 +155,67 @@ def numeric_summary(values: list[float]) -> dict[str, float] | None:
     if not values:
         return None
     return {"minimum": min(values), "median": statistics.median(values), "maximum": max(values)}
+
+
+def is_layout_node(item: dict[str, Any]) -> bool:
+    """仅将具有实际尺寸的非文字顶点纳入布局学习。"""
+    geometry_value = item.get("geometry") or {}
+    style = item.get("style") or {}
+    return bool(
+        item.get("vertex")
+        and item.get("id") not in {"0", "1"}
+        and geometry_value.get("width", 0) > 0
+        and geometry_value.get("height", 0) > 0
+        and "text" not in style
+    )
+
+
+def bounding_box(nodes: list[dict[str, Any]]) -> dict[str, float] | None:
+    geometries = [item["geometry"] for item in nodes if is_layout_node(item)]
+    if not geometries:
+        return None
+    left = min(item["x"] for item in geometries)
+    top = min(item["y"] for item in geometries)
+    right = max(item["x"] + item["width"] for item in geometries)
+    bottom = max(item["y"] + item["height"] for item in geometries)
+    return {"x": left, "y": top, "width": right - left, "height": bottom - top, "area": (right - left) * (bottom - top)}
+
+
+def compactness_profile(matches: list[dict[str, Any]]) -> dict[str, Any]:
+    baseline_nodes = [item["baseline"] for item in matches if is_layout_node(item["baseline"]) and is_layout_node(item["reference"])]
+    reference_nodes = [item["reference"] for item in matches if is_layout_node(item["baseline"]) and is_layout_node(item["reference"])]
+    baseline_box, reference_box = bounding_box(baseline_nodes), bounding_box(reference_nodes)
+    height_pairs = [(left["geometry"]["height"], right["geometry"]["height"]) for left, right in zip(baseline_nodes, reference_nodes)]
+    width_pairs = [(left["geometry"]["width"], right["geometry"]["width"]) for left, right in zip(baseline_nodes, reference_nodes)]
+    ratios = {}
+    if baseline_box and reference_box and baseline_box["width"] > 0 and baseline_box["height"] > 0 and baseline_box["area"] > 0:
+        ratios = {
+            "width_ratio": reference_box["width"] / baseline_box["width"],
+            "height_ratio": reference_box["height"] / baseline_box["height"],
+            "area_ratio": reference_box["area"] / baseline_box["area"],
+        }
+    return {
+        "baseline_bbox": baseline_box,
+        "reference_bbox": reference_box,
+        "bbox_ratios": ratios,
+        "node_height": {
+            "baseline": numeric_summary([item[0] for item in height_pairs]),
+            "reference": numeric_summary([item[1] for item in height_pairs]),
+            "decreased_count": sum(new < old - 0.01 for old, new in height_pairs),
+            "unchanged_count": sum(abs(new - old) <= 0.01 for old, new in height_pairs),
+            "increased_count": sum(new > old + 0.01 for old, new in height_pairs),
+        },
+        "node_width": {
+            "baseline": numeric_summary([item[0] for item in width_pairs]),
+            "reference": numeric_summary([item[1] for item in width_pairs]),
+            "decreased_count": sum(new < old - 0.01 for old, new in width_pairs),
+            "unchanged_count": sum(abs(new - old) <= 0.01 for old, new in width_pairs),
+            "increased_count": sum(new > old + 0.01 for old, new in width_pairs),
+        },
+        "prefer_compact_layout": bool(ratios and (ratios["height_ratio"] < 0.95 or ratios["area_ratio"] < 0.90)),
+        "reduce_blank_space_before_shrinking_font": True,
+        "preserve_font_size_before_compacting_nodes": True,
+    }
 
 
 def layout_profile(model: ET.Element, nodes: list[dict[str, Any]], relations: list[dict[str, Any]]) -> dict[str, Any]:
@@ -178,6 +258,8 @@ def analyze(baseline: Path, reference: Path, case_dir: Path, case_id: str, appro
     reference_rel_set = {(x["source"], x["target"], x["label"]) for x in reference_relations}
 
     anomalies = []
+    baseline_relation_labels = {item["label"] for item in baseline_relations if item["label"]}
+    unmatched_reference_ids = {item["id"] for item in new_unmatched}
     for relation in reference_relations:
         if not relation["source"] or not relation["target"]:
             anomalies.append({
@@ -185,6 +267,21 @@ def analyze(baseline: Path, reference: Path, case_dir: Path, case_id: str, appro
                 "severity": "hard",
                 "subject": relation["id"],
                 "message": "范例关系缺少 source 或 target，已成为绝对端点；只能学习视觉位置，不能复制该拓扑。",
+            })
+        if relation["source_id"] and relation["source_id"] == relation["target_id"]:
+            anomalies.append({
+                "code": "STYLE-REFERENCE-SELF-LOOP",
+                "severity": "hard",
+                "subject": relation["id"],
+                "message": "范例出现自连接关系；除绘图合同明确登记的循环外不得传播。",
+            })
+    for item in new_unmatched:
+        if item["compact"] and item["compact"] in baseline_relation_labels:
+            anomalies.append({
+                "code": "STYLE-REFERENCE-DETACHED-EDGE-LABEL",
+                "severity": "hard",
+                "subject": item["id"],
+                "message": "范例把原生箭头文字拆成独立文字节点；必须删除该节点并恢复基准边的原生 value。",
             })
     duplicated_labels = [key for key, count in Counter(item["compact"] for item in reference_cells if item["vertex"] and item["compact"]).items() if count > 1]
     for label in duplicated_labels:
@@ -202,7 +299,7 @@ def analyze(baseline: Path, reference: Path, case_dir: Path, case_id: str, appro
         if changed:
             visual_changes.append({"baseline_id": left["id"], "reference_id": right["id"], "label": right["text"], "changes": changed})
 
-    reference_nodes = [item for item in reference_cells if item["vertex"] and item["id"] not in {"0", "1"}]
+    reference_nodes = [item for item in reference_cells if is_layout_node(item)]
     reference_edges = [item for item in reference_cells if item["edge"]]
     widths = [item["geometry"].get("width") for item in reference_nodes if item["geometry"].get("width") is not None]
     heights = [item["geometry"].get("height") for item in reference_nodes if item["geometry"].get("height") is not None]
@@ -211,6 +308,7 @@ def analyze(baseline: Path, reference: Path, case_dir: Path, case_id: str, appro
         "page": {"width": float(reference_model.get("pageWidth", "0")), "height": float(reference_model.get("pageHeight", "0"))},
         "grid_size": int(float(reference_model.get("gridSize", "10"))),
         "layout": layout_profile(reference_model, reference_nodes, reference_relations),
+        "compactness": compactness_profile(matches),
         "typography": {"font_family": mode([item["style"].get("fontFamily") for item in reference_nodes if item["style"].get("fontFamily")]), "font_size": mode(font_sizes), "all_font_sizes": sorted(set(font_sizes))},
         "node_geometry": {"width": numeric_summary(widths), "height": numeric_summary(heights), "same_level_similar_size": True, "fit_text_before_shrinking_font": True},
         "palette": {"fill_colors": sorted({item["style"].get("fillColor") for item in reference_nodes if item["style"].get("fillColor")}), "stroke_colors": sorted({item["style"].get("strokeColor") for item in reference_nodes if item["style"].get("strokeColor")})},
@@ -226,6 +324,30 @@ def analyze(baseline: Path, reference: Path, case_dir: Path, case_id: str, appro
     }
     has_technical = any(technical_diff[key] for key in technical_diff)
     anomaly_codes = sorted({item["code"] for item in anomalies})
+    hard_anomalies = [item for item in anomalies if item.get("severity") == "hard"]
+    sanitization_plan = {
+        "required": bool(has_technical or anomalies),
+        "strategy": "rebuild_from_baseline_apply_reference_geometry",
+        "baseline_topology_authority": True,
+        "copy_matched_node_geometry": True,
+        "copy_only_whitelisted_styles": True,
+        "reference_edges_are_style_only": True,
+        "restore_baseline_relation_ids": True,
+        "restore_baseline_relation_endpoints": True,
+        "restore_native_edge_labels": True,
+        "drop_reference_only_nodes": True,
+        "drop_reference_only_edges": True,
+        "reject_self_loops_not_in_baseline": True,
+        "repair_anomaly_codes": sorted({item["code"] for item in hard_anomalies}),
+        "excluded_reference_node_ids": sorted(unmatched_reference_ids),
+        "expected_postconditions": [
+            "technical_diff_empty",
+            "all_edges_have_source_and_target",
+            "no_unregistered_self_loops",
+            "no_detached_edge_labels",
+            "baseline_relation_labels_restored",
+        ],
+    }
     approval = {
         "status": "approved" if approved_by else "pending",
         "approved_visual_only": bool(approved_by),
@@ -245,7 +367,19 @@ def analyze(baseline: Path, reference: Path, case_dir: Path, case_id: str, appro
         "visual_diff": {"page": {"from": {"width": baseline_model.get("pageWidth"), "height": baseline_model.get("pageHeight"), "grid_size": baseline_model.get("gridSize")}, "to": {"width": reference_model.get("pageWidth"), "height": reference_model.get("pageHeight"), "grid_size": reference_model.get("gridSize")}}, "changed_nodes": visual_changes},
         "structural_anomalies": anomalies,
         "reusable_style": reusable_style,
-        "application_policy": {"visual_only": True, "preserve_stable_ids": True, "preserve_element_labels": True, "preserve_relation_ids": True, "preserve_relation_endpoints": True, "preserve_method_topology": True},
+        "sanitization_plan": sanitization_plan,
+        "application_policy": {
+            "visual_only": True,
+            "preserve_stable_ids": True,
+            "preserve_element_labels": True,
+            "preserve_relation_ids": True,
+            "preserve_relation_endpoints": True,
+            "preserve_method_topology": True,
+            "rebuild_from_baseline": True,
+            "drop_reference_only_nodes": True,
+            "drop_reference_only_edges": True,
+            "restore_native_edge_labels": True,
+        },
         "approval": approval,
     }
 
@@ -272,9 +406,35 @@ def validate_style_brief(path: Path, case_dir: Path, require_approved: bool = Tr
         elif artifact.get("sha256") != sha256(candidate):
             errors.append({"code": "STYLE-BRIEF-STALE", "message": f"{key} SHA-256 已陈旧"})
     policy = value.get("application_policy") or {}
-    for key in ("visual_only", "preserve_stable_ids", "preserve_element_labels", "preserve_relation_ids", "preserve_relation_endpoints", "preserve_method_topology"):
+    for key in (
+        "visual_only", "preserve_stable_ids", "preserve_element_labels", "preserve_relation_ids",
+        "preserve_relation_endpoints", "preserve_method_topology", "rebuild_from_baseline",
+        "drop_reference_only_nodes", "drop_reference_only_edges", "restore_native_edge_labels",
+    ):
         if policy.get(key) is not True:
             errors.append({"code": "STYLE-BRIEF-POLICY", "message": f"application_policy.{key} 必须为 true"})
+    sanitization = value.get("sanitization_plan") or {}
+    required_sanitization_flags = {
+        "baseline_topology_authority", "copy_matched_node_geometry", "copy_only_whitelisted_styles",
+        "reference_edges_are_style_only", "restore_baseline_relation_ids", "restore_baseline_relation_endpoints",
+        "restore_native_edge_labels", "drop_reference_only_nodes", "drop_reference_only_edges",
+        "reject_self_loops_not_in_baseline",
+    }
+    for key in sorted(required_sanitization_flags):
+        if sanitization.get(key) is not True:
+            errors.append({"code": "STYLE-BRIEF-SANITIZATION", "message": f"sanitization_plan.{key} 必须为 true"})
+    hard_anomaly_codes = {
+        item.get("code") for item in value.get("structural_anomalies") or []
+        if isinstance(item, dict) and item.get("severity") == "hard"
+    }
+    repaired = set(sanitization.get("repair_anomaly_codes") or [])
+    if not hard_anomaly_codes <= repaired:
+        errors.append({"code": "STYLE-BRIEF-SANITIZATION", "message": f"硬异常未纳入净化计划：{sorted(hard_anomaly_codes - repaired)}"})
+    technical = value.get("technical_diff") or {}
+    has_technical_diff = any(technical.get(key) for key in ("added_nodes", "removed_nodes", "renamed_nodes", "added_relations", "removed_relations", "endpoint_changes"))
+    if (hard_anomaly_codes or has_technical_diff) and sanitization.get("required") is not True:
+        errors.append({"code": "STYLE-BRIEF-SANITIZATION", "message": "存在技术差异或硬异常时 sanitization_plan.required 必须为 true"})
+
     approval = value.get("approval") or {}
     if require_approved and (approval.get("status") != "approved" or approval.get("approved_visual_only") is not True):
         errors.append({"code": "STYLE-BRIEF-APPROVAL", "message": "样式合同尚未批准为仅视觉复用"})

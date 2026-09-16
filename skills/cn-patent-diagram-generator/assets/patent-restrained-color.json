@@ -40,16 +40,19 @@
     "primaryFontSize": 15,
     "annotationFontSize": 13,
     "minimumFontSize": 12,
-    "fontColor": "#111111"
+    "fontColor": "#111111",
+    "maximumChineseCharactersPerLine": 12
   },
   "geometry": {
     "grid": 10,
     "defaultNodeWidth": 200,
     "defaultNodeHeight": 70,
     "minimumHorizontalGap": 80,
-    "minimumVerticalGap": 70,
     "routingCorridor": 80,
-    "pageMargin": 40
+    "pageMargin": 40,
+    "maximumFrameToTextHeightRatio": 2,
+    "maximumVerticalBlankToSmallerNodeHeightRatio": 0.5,
+    "subtractNativeEdgeLabelTextHeight": true
   },
   "connectors": {
     "edgeStyle": "orthogonalEdgeStyle",

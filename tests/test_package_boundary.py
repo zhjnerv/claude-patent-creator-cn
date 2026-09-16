@@ -52,7 +52,11 @@ def test_legal_sources_have_topic_router():
     assert "subject_matter_and_computer_programs" in payload["topics"]
 
 
-def test_package_verifier_ignores_local_case_archive():
-    script = (ROOT / "scripts/verify_package.py").read_text(encoding="utf-8")
-    assert '".local-case-archive"' in script
-    assert "IGNORED_SCAN_PARTS" in script
+def test_package_verifier_uses_shared_distribution_boundary():
+    verifier = (ROOT / "scripts/verify_package.py").read_text(encoding="utf-8")
+    installer = (ROOT / "scripts/install_codex_skill.py").read_text(encoding="utf-8")
+    assert "collect_source_files" in verifier
+    assert "collect_source_files" in installer
+    assert "install_codex_skill.py" in verifier
+    assert ".local-case-archive" in installer
+    assert "SOURCE_SUFFIXES" in installer

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -189,6 +190,41 @@ def test_claim_abstract_and_figure_contracts(tmp_path):
     ]
 
 
+
+def test_specification_contract_strips_paragraph_numbers_and_requires_concise_figures(tmp_path):
+    module = ASSEMBLER
+    spec = tmp_path / "说明书.md"
+    spec.write_text(
+        "# 示例装置\n\n## 技术领域\n\n[0001] 涉及示例技术。\n\n"
+        "## 背景技术\n\n现有方案不足。\n\n## 发明内容\n\n提供示例方案。\n\n"
+        "## 附图说明\n\n图1为本申请一实施方式中的结构图。\n\n图中：100-示例模块。\n\n"
+        "## 具体实施方式\n\n以下结合附图说明本发明的具体实施例。\n\n### 实施例1。\n\n"
+        "如图1所示，示例模块100执行处理。\n",
+        encoding="utf-8",
+    )
+    items = module.parse_specification(spec)
+    assert all(not item.text.startswith("[0001]") for item in items)
+    figures = [module.FigureSpec(1, "结构图", tmp_path / "图1.png")]
+    module.validate_specification_structure(items, figures)
+
+    bad = [module.SpecItem(item.kind, item.text) for item in items]
+    figure_index = next(i for i, item in enumerate(bad) if item.text.startswith("图1为"))
+    bad[figure_index] = module.SpecItem("body", "图1示出了示例模块的内部连接、数据来源和完整处理过程。")
+    with pytest.raises(ValueError, match="一图一句"):
+        module.validate_specification_structure(bad, figures)
+
+
+def test_method_claim_steps_are_split_into_template_paragraphs():
+    module = ASSEMBLER
+    parts = module.split_claim_paragraphs(
+        "一种方法，其特征在于，包括：S101：执行第一步骤；S102：执行第二步骤。"
+    )
+    assert parts == [
+        "一种方法，其特征在于，包括：",
+        "S101：执行第一步骤；",
+        "S102：执行第二步骤。",
+    ]
+
 def test_direct_omml_builds_native_fraction_subscript_and_superscript(tmp_path):
     module = ASSEMBLER
     formula = "C(P,a_i)+(x^2)/(y_1-z)"
@@ -228,8 +264,9 @@ def test_linux_native_formula_no_longer_requires_word(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(
-    shutil.which("libreoffice") is None or shutil.which("pdfinfo") is None,
-    reason="需要 LibreOffice 和 pdfinfo 验证 Linux 公式渲染",
+    os.environ.get("CN_PATENT_RUN_VISUAL_TESTS") != "1"
+    or shutil.which("libreoffice") is None or shutil.which("pdfinfo") is None,
+    reason="仅显式授权 CN_PATENT_RUN_VISUAL_TESTS=1 时使用 LibreOffice/pdfinfo 导出合成 DOCX",
 )
 def test_linux_omml_roundtrip_renders_to_pdf(tmp_path):
     module = ASSEMBLER
@@ -260,7 +297,9 @@ def test_linux_build_document_generates_native_math_without_word(monkeypatch, tm
         "# 示例装置\n\n## 技术领域\n\n涉及参数 $a_i$。\n\n"
         "## 背景技术\n\n现有方案不足。\n\n## 发明内容\n\n"
         "$$\nC(P,a)=C(P,a_i)+(a-a_i)×[C(P,a_(i+1))-C(P,a_i)]/(a_(i+1)-a_i)\n$$\n\n"
-        "## 附图说明\n\n图1是结构图。\n\n## 具体实施方式\n\n执行计算。\n",
+        "## 附图说明\n\n图1为本申请一实施方式中的结构图。\n\n图中：100-示例模块。\n\n"
+        "## 具体实施方式\n\n以下结合附图说明本发明的具体实施例。\n\n### 实施例1。\n\n"
+        "如图1所示，示例模块100执行计算。\n",
         encoding="utf-8",
     )
     (source / "说明书摘要.md").write_text(
@@ -311,3 +350,268 @@ def test_visual_review_is_opt_in(monkeypatch, tmp_path):
     )
     args = module.parse_args()
     assert args.visual_review is True
+
+
+# -- F08: 单级模板与多级模板的 numId/ilvl 解析与校验 --
+
+
+def _template_with_numbering(tmp_path: Path, numbering_xml: str) -> Path:
+    """构造一份仅含 ``word/numbering.xml`` 的最小 zip 用于解析层级的单元测试。"""
+
+    path = tmp_path / "模板.docx"
+    with ZipFile(path, "w") as archive:
+        archive.writestr("word/numbering.xml", numbering_xml)
+    return path
+
+
+def _numbering_xml(entries: list[tuple[int, int, list[tuple[int, list[int]]]]]) -> str:
+    """构造 ``word/numbering.xml``。
+
+    ``entries`` 形如 ``[(num_id, abstract_id, [(ilvl, []), ...]), ...]``。
+    """
+
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+    ]
+    seen_abstracts: set[int] = set()
+    for _num_id, abstract_id, levels in entries:
+        if abstract_id not in seen_abstracts:
+            parts.append(f'<w:abstractNum w:abstractNumId="{abstract_id}">')
+            for ilvl, _ in levels:
+                parts.append(
+                    f'<w:lvl w:ilvl="{ilvl}"><w:start w:val="1"/></w:lvl>'
+                )
+            parts.append("</w:abstractNum>")
+            seen_abstracts.add(abstract_id)
+    for num_id, abstract_id, _ in entries:
+        parts.append(
+            f'<w:num w:numId="{num_id}">'
+            f'<w:abstractNumId w:val="{abstract_id}"/>'
+            "</w:num>"
+        )
+    parts.append("</w:numbering>")
+    return "".join(parts)
+
+
+def test_select_step_ilvl_prefers_sublevel_for_multilevel_template():
+    module = ASSEMBLER
+    assert module.select_step_ilvl({0, 1, 2}) == 1
+    assert module.select_step_ilvl({0, 1, 2, 3}) == 1
+
+
+def test_select_step_ilvl_falls_back_to_zero_for_single_level_template():
+    module = ASSEMBLER
+    assert module.select_step_ilvl({0}) == 0
+    with pytest.raises(ValueError, match="无法生成步骤段落"):
+        module.select_step_ilvl(set())
+
+
+def test_claim_step_properties_picks_legal_ilvl_per_template(tmp_path):
+    module = ASSEMBLER
+    document = Document()
+    paragraph = document.add_paragraph()
+    numpr = OxmlElement("w:numPr")
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), "0")
+    numid = OxmlElement("w:numId")
+    numid.set(qn("w:val"), "1")
+    numpr.extend((ilvl, numid))
+    paragraph._p.get_or_add_pPr().append(numpr)
+
+    single = module.claim_step_properties(paragraph._p.pPr, {0})
+    single_ilvl = single.find(qn("w:numPr")).find(qn("w:ilvl"))
+    assert single_ilvl.get(qn("w:val")) == "0"
+
+    multilevel = module.claim_step_properties(paragraph._p.pPr, {0, 1, 2})
+    multi_ilvl = multilevel.find(qn("w:numPr")).find(qn("w:ilvl"))
+    assert multi_ilvl.get(qn("w:val")) == "1"
+
+
+def test_parse_template_numbering_collects_abstract_and_override(tmp_path):
+    module = ASSEMBLER
+    # numId=1 绑定 abstractNum=0（含 ilvl 0/1/2）；numId=2 通过 lvlOverride 重写为仅 ilvl 0/2。
+    numbering_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0">
+    <w:lvl w:ilvl="0"><w:start w:val="1"/></w:lvl>
+    <w:lvl w:ilvl="1"><w:start w:val="1"/></w:lvl>
+    <w:lvl w:ilvl="2"><w:start w:val="1"/></w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="1">
+    <w:lvl w:ilvl="0"><w:start w:val="1"/></w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1">
+    <w:abstractNumId w:val="0"/>
+  </w:num>
+  <w:num w:numId="2">
+    <w:abstractNumId w:val="1"/>
+    <w:lvlOverride w:ilvl="2"><w:lvl w:ilvl="2"><w:start w:val="1"/></w:lvl></w:lvlOverride>
+  </w:num>
+</w:numbering>
+"""
+    template = _template_with_numbering(tmp_path, numbering_xml)
+    parsed = module.parse_template_numbering(template)
+    # 真实 w:lvl 为第二个编号实例增加 ilvl=2；保留基底 ilvl=0。
+    assert parsed == {1: {0, 1, 2}, 2: {0, 2}}
+
+
+def test_parse_template_numbering_handles_corrupt_numbering_xml(tmp_path):
+    module = ASSEMBLER
+    template = tmp_path / "坏numbering.docx"
+    with ZipFile(template, "w") as archive:
+        archive.writestr("word/numbering.xml", "<not-xml>")
+    with pytest.raises(ValueError, match="numbering.xml"):
+        module.parse_template_numbering(template)
+
+
+def test_parse_template_numbering_override_requires_real_lvl(tmp_path):
+    module = ASSEMBLER
+    numbering_xml = """<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"/></w:abstractNum>
+      <w:num w:numId="1"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="2"><w:lvl w:ilvl="2"/></w:lvlOverride></w:num>
+    </w:numbering>"""
+    template = _template_with_numbering(tmp_path, numbering_xml)
+    assert module.parse_template_numbering(template) == {1: {0, 2}}
+
+
+def test_parse_template_numbering_missing_member_is_unavailable(tmp_path):
+    module = ASSEMBLER
+    template = tmp_path / "缺失numbering.docx"
+    with ZipFile(template, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>")
+    assert module.parse_template_numbering(template) is None
+
+
+def test_parse_template_numbering_python_docx_default_template_is_single_level(tmp_path):
+    """python-docx 默认模板自带 ``numbering.xml``，每个 numId 只声明 ``ilvl=0``。"""
+
+    module = ASSEMBLER
+    template = tmp_path / "默认模板.docx"
+    _write_test_template(template)
+    parsed = module.parse_template_numbering(template)
+    assert parsed, "python-docx 默认模板应提供 numbering.xml"
+    # 默认模板所有 numId 均为单级列表（仅 ilvl=0），与单级步骤段落合同一致。
+    for levels in parsed.values():
+        assert levels == {0}
+
+
+def test_validate_numbering_references_rejects_undefined_numid():
+    module = ASSEMBLER
+    document_xml = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/>'
+        b'<w:numId w:val="99"/></w:numPr></w:pPr></w:p></w:body></w:document>'
+    )
+    with pytest.raises(ValueError, match="未定义的 numId=99"):
+        module.validate_numbering_references(document_xml, {1: {0}})
+
+
+def test_validate_numbering_references_rejects_undefined_ilvl():
+    module = ASSEMBLER
+    document_xml = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="2"/>'
+        b'<w:numId w:val="1"/></w:numPr></w:pPr></w:p></w:body></w:document>'
+    )
+    with pytest.raises(ValueError, match="未定义层级 ilvl=2"):
+        module.validate_numbering_references(document_xml, {1: {0}})
+
+
+def test_validate_numbering_references_accepts_legal_ilvl():
+    module = ASSEMBLER
+    document_xml = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:body>'
+        b'<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/>'
+        b'<w:numId w:val="1"/></w:numPr></w:pPr></w:p>'
+        b'<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/>'
+        b'<w:numId w:val="1"/></w:numPr></w:pPr></w:p>'
+        b'</w:body></w:document>'
+    )
+    module.validate_numbering_references(document_xml, {1: {0, 1, 2}})
+
+
+def test_validate_numbering_references_rejects_missing_numbering_when_referenced():
+    module = ASSEMBLER
+    document_xml = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="2"/>'
+        b'<w:numId w:val="1"/></w:numPr></w:pPr></w:p></w:body></w:document>'
+    )
+    with pytest.raises(ValueError, match="缺少或损坏"):
+        module.validate_numbering_references(document_xml, None)
+
+
+def test_validate_numbering_references_allows_missing_numbering_without_references():
+    module = ASSEMBLER
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:body><w:p><w:r><w:t>无编号正文</w:t></w:r></w:p></w:body></w:document>'
+    ).encode('utf-8')
+    module.validate_numbering_references(document_xml, None)
+
+
+def test_validate_numbering_references_accepts_numid_zero_as_no_numbering():
+    module = ASSEMBLER
+    document_xml = (
+        b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/>'
+        b'<w:numId w:val="0"/></w:numPr></w:pPr></w:p></w:body></w:document>'
+    )
+    module.validate_numbering_references(document_xml, None)
+
+
+def test_linux_build_document_with_single_level_template_does_not_reference_undefined_ilvl(
+    monkeypatch, tmp_path
+):
+    """F08 正例：模板只声明 ``ilvl=0``，步骤段落仍以 ``ilvl=0`` 输出，验证通过。"""
+
+    module = ASSEMBLER
+    monkeypatch.setattr(module.sys, "platform", "linux")
+    template = tmp_path / "输出模版.docx"
+    _write_test_template(template)
+    source = tmp_path / "02-申请文件"
+    figures = source / "说明书附图"
+    figures.mkdir(parents=True)
+    (source / "权利要求书.md").write_text(
+        "# 权利要求书\n\n"
+        "1. 一种方法，其特征在于，包括：S101：执行第一步骤；"
+        "S102：执行第二步骤；S103：执行第三步骤。\n",
+        encoding="utf-8",
+    )
+    (source / "说明书.md").write_text(
+        "# 示例装置\n\n## 技术领域\n\n涉及示例。\n\n"
+        "## 背景技术\n\n现有方案不足。\n\n## 发明内容\n\n提供示例方案。\n\n"
+        "## 附图说明\n\n图1为本申请一实施方式中的结构图。\n\n图中：100-示例模块。\n\n"
+        "## 具体实施方式\n\n以下结合附图说明本发明的具体实施例。\n\n### 实施例1。\n\n"
+        "如图1所示，示例模块100执行处理。\n",
+        encoding="utf-8",
+    )
+    (source / "说明书摘要.md").write_text(
+        "# 示例装置\n\n本发明提供一种示例装置。\n\n摘要附图：图1。\n",
+        encoding="utf-8",
+    )
+    Image.new("RGB", (200, 100), "white").save(figures / "图1.png")
+    (source / "说明书附图.md").write_text(
+        "# 说明书附图\n\n## 图1 结构图\n\n![图1](说明书附图/图1.png)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "申请文件.docx"
+    report = module.build_document(source, template, output, None)
+    assert report["status"] == "STRUCTURE_VERIFIED"
+    with ZipFile(output) as archive:
+        document_xml = archive.read("word/document.xml")
+    parsed = etree.fromstring(document_xml)
+    ilvl_values = [
+        ilvl.get(qn("w:val"))
+        for ilvl in parsed.iter(qn("w:ilvl"))
+    ]
+    # 单级模板：步骤段落不应出现 ilvl=2，全部段落均使用模板已声明的 ilvl=0。
+    assert "2" not in ilvl_values
+    assert all(value == "0" for value in ilvl_values)

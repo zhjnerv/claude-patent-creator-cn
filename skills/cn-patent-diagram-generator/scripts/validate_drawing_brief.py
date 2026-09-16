@@ -167,10 +167,11 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
         "reference_page_height": (1, None),
         "minimum_font_size": (12, None),
         "maximum_width_to_font_size_ratio": (8, 30),
-        "maximum_height_to_font_size_ratio": (3, 12),
+        "maximum_frame_to_text_height_ratio": (1, 2),
+        "maximum_chinese_characters_per_line": (1, 12),
         "horizontal_padding": (0, None),
         "vertical_padding": (0, None),
-        "line_height_factor": (1, 2),
+        "line_height_factor": (1, 1.2),
         "maximum_wrapped_lines": (1, 6),
     }
     for key, (minimum, maximum) in numeric_rules.items():
@@ -181,8 +182,68 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
         if value < minimum or (maximum is not None and value > maximum):
             suffix = f"且不大于 {maximum}" if maximum is not None else ""
             error("BRIEF-NODE-TEXT-POLICY", f"node_text_policy.{key} 必须不小于 {minimum}{suffix}")
-    if not isinstance(node_text_policy.get("maximum_wrapped_lines"), int) or isinstance(node_text_policy.get("maximum_wrapped_lines"), bool):
-        error("BRIEF-NODE-TEXT-POLICY", "node_text_policy.maximum_wrapped_lines 必须是整数")
+    for key in ("maximum_wrapped_lines", "maximum_chinese_characters_per_line"):
+        if not isinstance(node_text_policy.get(key), int) or isinstance(node_text_policy.get(key), bool):
+            error("BRIEF-NODE-TEXT-POLICY", f"node_text_policy.{key} 必须是整数")
+
+    vertical_spacing_policy = constraints.get("vertical_spacing_policy")
+    if not isinstance(vertical_spacing_policy, dict):
+        error("BRIEF-VERTICAL-SPACING-POLICY", "缺少 vertical_spacing_policy 对象")
+        vertical_spacing_policy = {}
+    required_true_fields = (
+        "subtract_native_edge_label_text_height",
+        "subtract_arrowhead_height",
+    )
+    for key in required_true_fields:
+        if vertical_spacing_policy.get(key) is not True:
+            error(
+                "BRIEF-VERTICAL-SPACING-POLICY",
+                f"vertical_spacing_policy.{key} 必须为 True",
+            )
+    exact_numeric_fields = {
+        "minimum_effective_blank_to_font_height_ratio": 2,
+        "maximum_effective_blank_to_font_height_ratio": 3,
+        "default_edge_label_font_size": 12,
+        "default_arrowhead_height": 6,
+    }
+    for key, expected in exact_numeric_fields.items():
+        if vertical_spacing_policy.get(key) != expected:
+            error(
+                "BRIEF-VERTICAL-SPACING-POLICY",
+                f"vertical_spacing_policy.{key} 必须为 {expected}",
+            )
+
+    node_shape_policy = constraints.get("node_shape_policy")
+    if not isinstance(node_shape_policy, dict):
+        error("BRIEF-NODE-SHAPE-POLICY", "缺少 node_shape_policy 对象")
+        node_shape_policy = {}
+    if node_shape_policy.get("cylinder_requires_data_store_kind") is not True:
+        error("BRIEF-NODE-SHAPE-POLICY", "node_shape_policy.cylinder_requires_data_store_kind 必须为 True")
+    if node_shape_policy.get("cylinder_label_pattern") != "存储|记录|数据库|数据表|缓存|仓库":
+        error("BRIEF-NODE-SHAPE-POLICY", "node_shape_policy.cylinder_label_pattern 必须为 '存储|记录|数据库|数据表|缓存|仓库'")
+
+    relation_label_policy = constraints.get("relation_label_policy")
+    if not isinstance(relation_label_policy, dict):
+        error("BRIEF-RELATION-LABEL-POLICY", "缺少 relation_label_policy 对象")
+        relation_label_policy = {}
+    if relation_label_policy.get("centered_vertical_label_required") is not True:
+        error("BRIEF-RELATION-LABEL-POLICY", "relation_label_policy.centered_vertical_label_required 必须为 True")
+    relation_numeric_rules = {
+        "minimum_font_to_node_font_ratio": (2 / 3, 1),
+        "minimum_vertical_clearance_in_arrowhead_heights": (1, 3),
+        "default_arrowhead_height": (6, 24),
+        "vertical_label_center_tolerance": (0, 0.1),
+    }
+    for key, (minimum, maximum) in relation_numeric_rules.items():
+        value = relation_label_policy.get(key)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            error("BRIEF-RELATION-LABEL-POLICY", f"relation_label_policy.{key} 必须是数字")
+            continue
+        if value < minimum or value > maximum:
+            error(
+                "BRIEF-RELATION-LABEL-POLICY",
+                f"relation_label_policy.{key} 必须不小于 {minimum:g} 且不大于 {maximum:g}",
+            )
 
     source_artifacts = brief.get("source_artifacts")
     if not isinstance(source_artifacts, list):
@@ -556,10 +617,31 @@ def validate_brief(brief_path: Path, case_dir: Path) -> dict[str, Any]:
                 source = architecture_decisions[decision_id]
                 if binding.get("condition") != source.get("condition") or compact_text(element_by_id[element_id].get("label", "")) != compact_text(str(source.get("condition", ""))):
                     error("BRIEF-DECISION-TEXT", f"图{number} 判断{decision_id}文字未逐字绑定架构合同")
-                targets = {relation.get("target") for relation in relations if isinstance(relation, dict) and relation.get("source") == element_id}
-                expected_targets = {step_to_element.get(source.get("true_target_step_id")), step_to_element.get(source.get("false_target_step_id"))}
-                if None in expected_targets or not expected_targets <= targets:
-                    error("BRIEF-DECISION-ROUTING", f"图{number} 判断{decision_id}未连接至架构合同规定的两个步骤")
+                branch_relation_ids: set[str] = set()
+                for role, allowed_labels in (("true", {"是", "真", "true", "yes"}), ("false", {"否", "假", "false", "no"})):
+                    branch = binding.get(f"{role}_branch")
+                    if not isinstance(branch, dict):
+                        error("BRIEF-DECISION-BRANCH", f"图{number} 判断{decision_id}缺少{role}_branch的关系ID、目标步骤和原生关系标签绑定")
+                        continue
+                    rid = branch.get("relation_id")
+                    if not isinstance(rid, str) or rid not in relation_by_id or rid in branch_relation_ids:
+                        error("BRIEF-DECISION-BRANCH", f"图{number} 判断{decision_id}的{role}关系ID未知或重复：{rid}")
+                        continue
+                    branch_relation_ids.add(rid)
+                    relation = relation_by_id[rid]
+                    target_step = source.get(f"{role}_target_step_id")
+                    expected_target = step_to_element.get(target_step)
+                    if (branch.get("target_step_id") != target_step or expected_target is None
+                            or relation.get("source") != element_id or relation.get("target") != expected_target):
+                        error("BRIEF-DECISION-ROUTING", f"图{number} 判断{decision_id}的{role}关系{rid}未绑定架构合同规定的目标步骤{target_step}")
+                    label = branch.get("label")
+                    relation_label = relation.get("label")
+                    if (not isinstance(label, str) or label not in allowed_labels
+                            or not isinstance(relation_label, str) or re.sub(r"\s+", "", relation_label) != label):
+                        error("BRIEF-DECISION-LABEL", f"图{number} 判断{decision_id}的{role}关系{rid}原生关系标签与真假角色不一致")
+                outgoing_ids = {rid for rid, relation in relation_by_id.items() if relation.get("source") == element_id}
+                if len(branch_relation_ids) != 2 or outgoing_ids != branch_relation_ids:
+                    error("BRIEF-DECISION-BRANCH", f"图{number} 判断{decision_id}必须恰好绑定真、假两条出关系边，不得缺支或额外出支")
             if set(bound_decisions) != set(architecture_decisions):
                 error("BRIEF-DECISION-ISOMORPHISM", f"图{number} 判断集合与架构合同不一致")
             diagram_decision_ids = {eid for eid, item in element_by_id.items() if item.get("kind") == "decision"}

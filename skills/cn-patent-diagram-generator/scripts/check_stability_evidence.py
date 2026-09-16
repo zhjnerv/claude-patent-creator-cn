@@ -14,7 +14,10 @@ SUPPORTED = {
     "PATENT-DRAWING-TECH-COVERAGE",
     "PATENT-DRAWING-STEP-ISOMORPHISM",
     "PATENT-DRAWING-DIRECT-CONNECTOR",
+    "PATENT-DRAWING-NODE-SHAPE",
+    "PATENT-DRAWING-EDGE-LABEL-READABILITY",
     "PATENT-DRAWING-NODE-TEXT-FIT",
+    "PATENT-DRAWING-VERTICAL-SPACING",
     "PATENT-DRAWING-PNG-MARGIN",
     "PATENT-DRAWING-COLOR",
     "PATENT-DRAWING-OFFICIAL-EXPORT",
@@ -98,7 +101,8 @@ def check_constraint(report: dict[str, Any], constraint: str) -> tuple[bool, lis
     if constraint == "PATENT-DRAWING-DIRECT-CONNECTOR":
         prefixes = (
             "DRAWING-DIRECT", "DRAWING-NATIVE-EDGE-LABEL", "DRAWING-DETACHED-EDGE-LABEL",
-            "DRAWING-TEXT-WAYPOINT", "DRAWING-ROUTE", "DRAWING-LINT",
+            "DRAWING-TEXT-WAYPOINT", "DRAWING-ABSOLUTE-ENDPOINT", "DRAWING-SELF-LOOP",
+            "DRAWING-ROUTE", "DRAWING-LINT",
         )
         relevant = sorted(code for code in codes if code.startswith(prefixes))
         lint_ok = bool(figures) and all(
@@ -108,14 +112,34 @@ def check_constraint(report: dict[str, Any], constraint: str) -> tuple[bool, lis
         ok = lint_ok and not relevant
         return ok, ["direct-connectors-pass"] if ok else relevant or ["connector-lint-fail"]
 
+    if constraint == "PATENT-DRAWING-NODE-SHAPE":
+        relevant = sorted(code for code in codes if code == "DRAWING-CYLINDER-SEMANTICS")
+        has_drawio_evidence = bool(figures) and all(isinstance(item.get("drawio"), dict) for item in figures)
+        ok = has_drawio_evidence and not relevant
+        return ok, ["node-shape-pass"] if ok else relevant or ["node-shape-fail"]
+
+    if constraint == "PATENT-DRAWING-EDGE-LABEL-READABILITY":
+        relevant = sorted(code for code in codes if code.startswith(("DRAWING-EDGE-LABEL-FONT", "DRAWING-EDGE-LABEL-CLEARANCE", "DRAWING-RELATION-LABEL-POLICY")))
+        has_drawio_evidence = bool(figures) and all(isinstance(item.get("drawio"), dict) for item in figures)
+        ok = has_drawio_evidence and not relevant
+        return ok, ["edge-label-readability-pass"] if ok else relevant or ["edge-label-readability-fail"]
+
     if constraint == "PATENT-DRAWING-NODE-TEXT-FIT":
         prefixes = (
             "DRAWING-NODE-TEXT-POLICY", "DRAWING-FONT-SIZE", "DRAWING-TEXT-WRAP",
-            "DRAWING-NODE-PROPORTION", "DRAWING-TEXT-OVERFLOW",
+            "DRAWING-NODE-PROPORTION", "DRAWING-NODE-HEIGHT", "DRAWING-CHINESE-WRAP",
+            "DRAWING-TEXT-OVERFLOW",
         )
         relevant = sorted(code for code in codes if code.startswith(prefixes))
-        ok = bool(figures) and all((item.get("drawio") or {}).get("passed") is True for item in figures) and not relevant
+        has_drawio_evidence = bool(figures) and all(isinstance(item.get("drawio"), dict) for item in figures)
+        ok = has_drawio_evidence and not relevant
         return ok, ["node-text-fit-pass"] if ok else relevant or ["node-text-fit-fail"]
+
+    if constraint == "PATENT-DRAWING-VERTICAL-SPACING":
+        relevant = sorted(code for code in codes if code.startswith("DRAWING-VERTICAL-SPACING"))
+        has_drawio_evidence = bool(figures) and all(isinstance(item.get("drawio"), dict) for item in figures)
+        ok = has_drawio_evidence and not relevant
+        return ok, ["vertical-spacing-pass"] if ok else relevant or ["vertical-spacing-fail"]
 
     if constraint == "PATENT-DRAWING-PNG-MARGIN":
         relevant = sorted(code for code in codes if code.startswith(("DRAWING-EXCESSIVE-MARGIN", "DRAWING-EXPORT-MODE")))

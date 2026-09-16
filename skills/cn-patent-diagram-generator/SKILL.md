@@ -3,7 +3,7 @@ name: cn-patent-diagram-generator
 description: 中国专利说明书附图的领域适配与验收 Skill。应在从权利要求书、说明书和区别特征台账生成或修改中国发明/实用新型附图时使用：先冻结图号、技术元素、部件标记、步骤号和关系，形成 cn-patent-drawing-brief/v4，再调用 drawio-skill 完成专业布局、原生 .drawio 制作、Draw.io Desktop CLI 导出和视觉迭代，最后执行专利图文一致性与候选绑定验收。不要用于一般商业图表，也不要在本 Skill 内另造一套 Draw.io 布局或 PNG 渲染器。
 allowed-tools: Bash, Read, Write
 metadata:
-  version: "4.3.0"
+  version: "4.7.0"
 ---
 
 # 中国专利附图适配器 v4
@@ -53,9 +53,23 @@ python scripts/analyze_drawing_reference.py \
 
 分析器按稳定 ID、部件/步骤标记、可见标签依次匹配，分别输出技术差异、视觉差异和结构异常。范例中的新增/删除技术关系、绝对端点、断连或重复标签不得静默传播。向用户复述视觉意图并得到明确确认后，才可使用 `--approve-by` 生成批准状态，并运行 `validate_drawing_style_brief.py`。
 
-批准的 `cn-patent-drawing-style-brief/v1` 只允许控制主链方向、同层分支、汇聚方式、节点尺寸、字号、网格、配色、形状和连线语法；drawing brief 中的元素 ID、标签、关系 ID、source/target、方法步骤、判断和循环始终是技术事实来源。若 drawing brief 声明 `style_brief_path`，同时必须绑定 `style_brief_sha256`，且样式合同必须批准并保持新鲜。
+批准的 `cn-patent-drawing-style-brief/v1` 只允许控制主链方向、同层分支、汇聚方式、节点尺寸、字号、网格、配色、形状和连线语法；drawing brief 中的元素 ID、标签、关系 ID、source/target、方法步骤、判断和循环始终是技术事实来源。样式合同还会记录基准图与范例图的包围盒压缩比例、节点宽高变化和紧凑布局倾向：优先保持字号，再压缩节点高度和无意义空白，不按比例缩小整图。
 
-Schema：`references/drawing-style-brief-schema.json`；示例：`assets/drawing-style-brief.example.json`。
+用户修改稿不得直接作为正式母版。对同一幅图的修改稿，批准视觉意图后必须执行安全重建：
+
+```bash
+python scripts/sanitize_drawing_reference.py \
+  --baseline "修改前.drawio" \
+  --reference "用户修改稿.drawio" \
+  --output "安全重建.drawio" \
+  --report "reference-sanitization.json"
+```
+
+安全重建以原始母版为拓扑权威，只复制匹配节点的几何和白名单样式；关系 ID、source/target 和原生 edge value 均从原始母版恢复。参考图中的独立箭头文字、重复标签、额外关系、自连接和绝对端点不会进入输出。对其他附图批量复用时，只消费 style brief 的紧凑布局指标和视觉规则，不复制参考图节点或边。
+
+若 drawing brief 声明 `style_brief_path`，同时必须绑定 `style_brief_sha256`，且样式合同必须批准、保持新鲜并包含完整净化计划。
+
+Schema：`references/drawing-style-brief-schema.json`；安全重建报告：`references/drawing-reference-sanitization-schema.json`；示例：`assets/drawing-style-brief.example.json`。
 
 ## 输入合同
 
@@ -72,7 +86,7 @@ Schema：`references/drawing-style-brief-schema.json`；示例：`assets/drawing
 - 每条关系的 source、target、类型、优选方向、独立 `route_channel` 和是否必须直连；
 - 正常/异常出口，以及说明书声称该图表达的元素 ID、关系 ID 和原文锚点；
 - `.drawio`、预览图、最终 PNG、导出报告的目标路径；
-- 配色策略、节点文字适配策略、PNG边距策略和视觉复核文件路径；
+- 配色策略、节点文字适配策略、纵向间距策略、PNG边距策略和视觉复核文件路径；
 - 存在用户范例时，批准后的样式合同路径及SHA-256。
 
 先运行：
@@ -88,6 +102,15 @@ python scripts/validate_drawing_brief.py \
 
 示例：`assets/patent-drawing-brief.example.json`。
 
+## 术语约定
+
+执行附图任务前读取 `references/drawing-terminology.md`。对话、drawing brief、代码、错误信息和验收报告统一使用其中术语：
+
+- “节点”是节点外框与节点文字组成的整体；
+- “原生关系标签”是绑定在关系边 `value` 上的文字；
+- “独立文本节点”是浮动画布文字，不得用于模拟原生关系标签；
+- “有效空白高度”是垂直净距扣除关系标签文字块高度后的剩余空白。
+
 ## 专利领域约束
 
 1. 技术元素和关系只能来自冻结的权利要求、说明书和区别特征台账；制图端不得补充新技术事实。
@@ -98,10 +121,14 @@ python scripts/validate_drawing_brief.py \
 6. 关系说明、“是/否”和数据流名称必须直接写入对应 edge 的原生 `value`；不得在线条外创建独立文本框模拟关系标签，也不得把文字节点作为边端点或中继。
 7. 每项技术关系只有一条 source→target 直接边。本可竖直或水平直连时不得增加 waypoint；只有绕开无关节点时才使用显式正交路由。
 8. 禁止线穿节点、线穿文字、自交、回钩、重叠、无意义环绕及箭头方向歧义。
-9. 节点必须显式设置字号并启用自动换行；不得通过缩小字体容纳文字。节点尺寸应由文字长度和预计行数决定，不得用大方框承载明显偏小的文字，也不得让文字裁切或溢出边界。
-10. 所有节点尺寸和字号按 A4 基准画布归一化检查，避免仅因扩大整个画布而绕过字号和框字比例门禁。
-11. 方法流程图的步骤号、顺序、动作文字、判断条件和循环返回点必须逐项来自 `claim-architecture.json`；不得因版面空间自行概括、合并或重新编号。空间不足时调整节点、增加画布有效高度或拆图，不得缩小字号硬塞。
-12. 权利要求、说明书或权利要求架构合同变化后，旧绘图合同、旧视觉记录和旧最终附图全部失效。
+9. 节点必须显式设置字号并启用自动换行；任一可见行最多12个汉字，超过时必须通过 `<br>` 或换行符显式断行，不得仅依赖自动折行。
+10. 节点尺寸应由文字长度和预计行数决定，外框高度不得超过实际文字块高度的2倍，也不得让文字裁切或溢出边界。
+11. 圆柱型节点仅用于明确的数据集合、记录、数据库、数据表、缓存、仓库或持久化存储；普通模块、动作、步骤、判断、事实、状态和一般结果使用矩形、圆角矩形、菱形或椭圆。
+12. 原生关系标签字号不得小于相邻节点文字字号的三分之二；纵向相邻节点间的原生关系标签居中放置后，其文字块上方和下方必须各至少保留一个箭头头部高度。
+13. 直接上下相连节点的外框净距扣除原生关系标签文字块高度和一个箭头头部高度后，有效空白必须处于相邻节点较小字体行高的2倍至3倍之间；关系标签和箭头头部不计入节点高度。
+14. 所有节点尺寸和字号按 A4 基准画布归一化检查，避免仅因扩大整个画布而绕过字号和框字比例门禁。
+15. 方法流程图的步骤号、顺序、动作文字、判断条件和循环返回点必须逐项来自 `claim-architecture.json`；不得因版面空间自行概括、合并或重新编号。空间不足时调整节点、增加画布有效高度或拆图，不得缩小字号硬塞。
+16. 权利要求、说明书或权利要求架构合同变化后，旧绘图合同、旧视觉记录和旧最终附图全部失效。
 
 ## 图型与样式
 
@@ -168,7 +195,7 @@ python scripts/export_patent_drawio.py \
 - 线条不交叉、不穿节点、不压文字；
 - 原生线条文字位于正确分支，且不遮挡线条或节点；线路没有无意义折返、回钩或绕行；
 - 箭头方向明确；
-- 字体、字号、节点尺寸和间距一致，框字比例协调；
+- 字体、字号、节点尺寸和间距一致；节点显式换行、外框/文字块高度比例和纵向有效空白符合合同；
 - 所有节点文字均完整位于边界内，无裁切、溢出或依赖缩小字体硬塞；
 - 图面不拥挤，留白合理，主次层级清楚；
 - 彩色图克制且灰度可读；
@@ -196,7 +223,7 @@ python scripts/verify_patent_drawings.py \
 - 绘图合同及来源哈希；
 - 元素、关系、标记和图号；
 - source→target 直接连接、原生线条文字和独立标签文本框；
-- A4归一化字号、框字比例、自动换行和文本容纳高度；
+- A4归一化字号、每行汉字数、外框/文字块高度比例、圆柱节点语义、关系标签字号与上下净空、文本容量和扣除关系标签及箭头头部后的2—3倍字体行高纵向空白；
 - 图型配色、渐变和阴影；
 - drawio-skill `validate.py --strict`；
 - Draw.io Desktop CLI 导出证据；
@@ -211,7 +238,7 @@ python scripts/verify_patent_drawings.py \
 
 ## 约束追踪与回归证据
 
-`config/instruction-stability-contract.json` 将来源绑定、范例样式、技术覆盖、步骤同构、直接连接、节点文字适配、PNG白边、克制配色、官方导出和视觉绑定十类硬约束，逐项映射到主动 checker、正例和最小违规反例。`assets/stability/` 中的样本只用于 Skill 自身回归，不得作为客户案件的最终验收结果。正式声明多轮稳定性时，仍需由候选外评估者提供签名硬约束基线、至少三轮独立运行证据和 Skill Lint 回执。
+`config/instruction-stability-contract.json` 将来源绑定、范例样式、技术覆盖、步骤同构、直接连接、节点文字适配、纵向节点间距、PNG白边、克制配色、官方导出和视觉绑定十一类硬约束，逐项映射到主动 checker、正例和最小违规反例。`assets/stability/` 中的样本只用于 Skill 自身回归，不得作为客户案件的最终验收结果。正式声明多轮稳定性时，仍需由候选外评估者提供签名硬约束基线、至少三轮独立运行证据和 Skill Lint 回执。
 
 ## 硬失败与回炉
 

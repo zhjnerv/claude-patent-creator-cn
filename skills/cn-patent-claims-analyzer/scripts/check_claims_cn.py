@@ -205,7 +205,11 @@ def parse_reference_numbers(clause: str, budget: Budget) -> tuple[int, ...]:
         start, end = int(match.group(1)), int(match.group(2))
         if max(start, end) > MAX_CLAIM_NUMBER:
             raise ResourceLimitError(f"{RESOURCE_RULE_ID}: 引用编号超过上限 {MAX_CLAIM_NUMBER}")
-        if start <= end and end - start <= 500:
+        if start <= end:
+            range_size = end - start + 1
+            # 现有资源合同允许最多 100,000 条引用边；超过预算必须明确失败，
+            # 不能退化为只保留端点，否则会漏掉区间内的多项从属违规。
+            ensure_count("引用区间展开", range_size, MAX_REFERENCE_EDGES)
             numbers.update(range(start, end + 1))
         else:
             numbers.update((start, end))

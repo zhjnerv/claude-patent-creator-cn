@@ -58,6 +58,7 @@ allowed-tools: Bash, Read, Write
 → 权利要求架构门（载体分工/继承拓扑/方法步骤）
 → drawing brief v4与步骤同构门
 → 可选用户范例差异分析与style brief v1确认
+→ 原始母版安全重建（同图修改稿）
 → 附图
 → 综合审查
 → 可选 DOCX

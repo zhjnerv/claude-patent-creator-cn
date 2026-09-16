@@ -8,6 +8,7 @@
 
 - SVG 时代的独立标签节点规则与 Draw.io 原生 edge label 冲突；
 - 节点尺寸、字号和文本容量缺少联动，出现大框小字或文字溢出；
+- 长中文标签未强制显式换行，且纵向相邻方框间空白过大；
 - 用户修改范例同时包含视觉意图和 Draw.io 手工编辑副作用，不能整图盲目复制；
 - PNG 按整页导出时产生大面积无意义白边；
 - 附图变化后，最终 DOCX 可能继续绑定旧图片。
@@ -28,9 +29,21 @@
 
 - 正式关系文字使用原生 edge `value`；
 - 不生成 SVG；
-- `node_text_policy` 检查显式字号、自动换行、A4归一化字号、框字比例和文本容量；
+- `node_text_policy` 检查显式字号、每行最多12个汉字、A4归一化字号、外框不超过文字块高度2倍和文本容量；
+- `vertical_spacing_policy` 检查直接上下相连节点扣除原生关系标签和一个箭头头部后的有效空白处于相邻节点较小字体行高的2倍至3倍之间；
+- `node_shape_policy` 限制圆柱型节点仅用于明确存储、记录、数据库、数据表、缓存或仓库语义；
+- `relation_label_policy` 要求原生关系标签字号不小于相邻节点字号的三分之二，且纵向标签上下各至少保留一个箭头头部高度；
+- `sanitize_drawing_reference.py` 从原始母版安全重建用户修改布局，保留基准拓扑并剔除绝对端点、自连接、独立标签和额外关系；
 - `png_margin_policy` 要求使用 Draw.io Desktop CLI `--size diagram`，并按像素复算四边白边；
 - 白边超过合同上限触发 `DRAWING-EXCESSIVE-MARGIN`。
+
+### 用户修改稿紧凑布局与安全重建
+
+对01、02案共14幅 `-zhj.drawio` 修改稿进行真实回放：11幅图明显压缩了整体包围盒，02案图2的包围盒面积约降至原图的32.8%，图3约降至34.0%；共同规律是保持24号字体，优先缩短节点高度、收紧纵向空白、让主链居中并把同层分支靠近判断节点。
+
+修改稿同时暴露30项硬结构副作用：19条绝对端点、10个从原生edge label拆出的独立文字节点、1条自连接，以及2组重复标签警告。新增 `reusable_style.compactness`、`sanitization_plan` 和 `sanitize_drawing_reference.py`：从原始母版保留技术节点、关系ID、source/target和原生edge value，只应用匹配节点几何及白名单样式，所有边重新交给Draw.io正交路由，参考图中的额外节点、额外边、绝对端点和自连接不传播。
+
+14幅修改稿全部完成安全重建回放；重建结果再次与原始母版对比时 `technical_diff` 全空、结构异常为0，且14/14通过drawio-skill strict lint。安全重建结果只标记为 `STRUCTURE_SAFE_VISUAL_REVIEW_REQUIRED`，仍须官方PNG预览和视觉迭代，不能把结构安全冒充为视觉完成。
 
 ### DOCX 交付
 
@@ -50,7 +63,7 @@
 → 可选：原图/用户范例差异分析
 → 用户确认 style brief v1
 → drawio-skill 制图
-→ 技术拓扑、节点文字、原生标签和配色门禁
+→ 技术拓扑、节点文字、纵向有效空白、原生标签和配色门禁
 → Draw.io CLI 按 diagram 边界导出 PNG
 → DPI、白边、哈希与最终视觉复核
 → 重新组装 DOCX
@@ -60,8 +73,8 @@
 
 ## 验证结果
 
-- 全量测试：`233 passed, 107 subtests passed`；
-- 新增范例分析、白边和 DOCX 交付专项测试：通过；
+- 全量测试：`257 passed, 107 subtests passed`；
+- 新增范例分析、白边、节点文字、纵向间距和 DOCX 交付专项测试：通过；
 - 包边界检查：`PASS`；
 - Python 编译、JSON 解析、UTF-8 无 BOM、`git diff --check`：通过；
 - Skill Lint Harness 静态审查：`PASS`；

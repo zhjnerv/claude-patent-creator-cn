@@ -145,6 +145,19 @@ class ClaimsCheckerV2Tests(unittest.TestCase):
             gap = next(item for item in report["gaps"] if item["rule_id"] == rule_id)
             self.assertEqual(gap["category"], "SEMANTIC_REVIEW_NOT_PERFORMED")
 
+    def test_reference_ranges_expand_through_501_502_601_without_endpoint_truncation(self):
+        for end in (501, 502, 601):
+            lines = [f"{number}. 一种处理装置，其特征在于，包括处理器。" for number in range(1, end + 1)]
+            lines[2] = "3. 根据权利要求1或2中任一项所述的处理装置，其特征在于，还包括存储器。"
+            lines.append(f"{end + 1}. 根据权利要求1至{end}中任一项所述的处理装置，其特征在于，还包括传感器。")
+            report = checker.analyze_claims("\n".join(lines))
+            findings = [item for item in report["findings"] if item["rule_id"] == "CN-CLAIM-MULTI-001" and item["target_id"] == f"claim-{end + 1}"]
+            self.assertTrue(any(item["status"] == "DETERMINISTIC_FAIL" and "引用了另一项多项从属" in item["problem"] for item in findings), end)
+
+    def test_reference_range_over_resource_budget_is_rejected_not_truncated(self):
+        with self.assertRaises(checker.ResourceLimitError):
+            checker.analyze_claims("1. 根据权利要求1至100001中任一项所述的装置。")
+
     def test_large_number_is_rejected_without_range_allocation(self):
         with self.assertRaises(checker.ResourceLimitError):
             checker.analyze_claims("1000001. 一种装置。")

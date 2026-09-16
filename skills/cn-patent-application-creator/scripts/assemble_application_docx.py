@@ -17,6 +17,7 @@ Windows 上均为可编辑的 Word 原生公式；禁止把普通字符排版冒
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import shutil
@@ -60,6 +61,10 @@ REPORT_SCHEMA = "cn-patent-docx-assembly/v2"
 CJK_RE = re.compile(r"[\u3400-\u9fff]")
 DISPLAY_FORMULA_RE = re.compile(r"=")
 INLINE_EXPLICIT_RE = re.compile(r"\$([^$\n]+)\$")
+SPEC_PARAGRAPH_NUMBER_RE = re.compile(r"^\[\d{4}\]\s*")
+CLAIM_STEP_RE = re.compile(r"(?=S\d{3}\s*[：:])")
+FIGURE_DESCRIPTION_RE = re.compile(r"^图\s*(\d+)\s*(?:为|是).+图[。.]$")
+FIGURE_CITATION_RE = re.compile(r"(?:如|参见|结合)图\s*(\d+)\s*(?:所示|可见)?|图\s*(\d+)\s*(?:所示|中)")
 INLINE_EQUATION_RE = re.compile(
     r"(?<![A-Za-z0-9_])"
     r"[A-Za-z][A-Za-z0-9_]*(?:_(?:[A-Za-z0-9]+|\([A-Za-z0-9+\-]+\)))?"
@@ -372,6 +377,131 @@ def parse_claims(path: Path) -> list[str]:
     return claims
 
 
+
+def split_claim_paragraphs(text: str) -> list[str]:
+    """将包含连续步骤标记的方法权利要求拆为模板中的多级段落。"""
+    matches = list(re.finditer(r"S\d{3}\s*[：:]", text))
+    if len(matches) < 2:
+        return [text]
+    prefix = text[:matches[0].start()].strip()
+    steps = [part.strip() for part in CLAIM_STEP_RE.split(text[matches[0].start():]) if part.strip()]
+    return ([prefix] if prefix else []) + steps
+
+
+# 生产与独立验证共用编号约束，但分别读取各自当前的 DOCX 字节。
+_numbering_spec = importlib.util.spec_from_file_location(
+    "cn_docx_numbering_contract", Path(__file__).with_name("verify_docx_assembly.py")
+)
+if _numbering_spec is None or _numbering_spec.loader is None:
+    raise RuntimeError("无法加载 DOCX 编号约束")
+_numbering = importlib.util.module_from_spec(_numbering_spec)
+_numbering_spec.loader.exec_module(_numbering)
+
+
+def _parse_numbering_bytes(numbering_bytes: bytes) -> dict[int, set[int]]:
+    return _numbering._parse_final_numbering(numbering_bytes)
+
+
+def parse_template_numbering(template_path: Path) -> dict[int, set[int]] | None:
+    """缺少编号部件返回 None；损坏或非法编号定义明确失败。"""
+    with ZipFile(template_path) as archive:
+        if "word/numbering.xml" not in archive.namelist():
+            return None
+        try:
+            return _parse_numbering_bytes(archive.read("word/numbering.xml"))
+        except (_numbering.ET.ParseError, ValueError) as exc:
+            raise ValueError(f"模板 numbering.xml 无效：{exc}") from exc
+
+
+def select_step_ilvl(available_levels: set[int]) -> int:
+    """为步骤段落选择模板已定义的层级：优先 ``>0`` 的最小层级，否则退回 ``0``。
+
+    单级模板只定义 ``ilvl=0`` 时，步骤段落也使用 ``ilvl=0``（避免引用未定义层级）。
+    """
+
+    if not available_levels:
+        raise ValueError("模板未提供任何 numId/ilvl 定义，无法生成步骤段落")
+    ordered = sorted(available_levels)
+    for level in ordered:
+        if level > 0:
+            return level
+    return ordered[0]
+
+
+def claim_step_properties(claim_ppr, available_levels: set[int]):
+    """复制模板权利要求属性，并把 ilvl 切到模板已定义的步骤层级。"""
+
+    result = deepcopy(claim_ppr)
+    numpr = result.find(qn("w:numPr"))
+    if numpr is None:
+        raise ValueError("模板权利要求缺少 numPr，无法生成步骤段落")
+    numid = numpr.find(qn("w:numId"))
+    if numid is None or numid.get(qn("w:val")) is None:
+        raise ValueError("模板权利要求 numPr 缺少 numId，无法生成步骤段落")
+    ilvl = numpr.find(qn("w:ilvl"))
+    if ilvl is None:
+        ilvl = OxmlElement("w:ilvl")
+        numpr.insert(0, ilvl)
+    ilvl.set(qn("w:val"), str(select_step_ilvl(available_levels)))
+    ind = result.find(qn("w:ind"))
+    if ind is not None:
+        result.remove(ind)
+    return result
+
+
+def validate_numbering_references(
+    document_xml: bytes, numbering: dict[int, set[int]] | None,
+) -> None:
+    """根据最终 DOCX 的真实定义检查显式编号引用，而非旧模板映射。"""
+    _numbering._validate_numbering_references(document_xml, numbering)
+
+
+def validate_specification_structure(items: list[SpecItem], figures: list[FigureSpec]) -> None:
+    """校验附图说明和具体实施方式的模板化组织。"""
+    headings = [(index, item.text) for index, item in enumerate(items) if item.kind == "heading"]
+    by_name = {text: index for index, text in headings}
+    if "附图说明" not in by_name or "具体实施方式" not in by_name:
+        raise ValueError("说明书缺少附图说明或具体实施方式")
+    drawing_start = by_name["附图说明"] + 1
+    implementation_start = by_name["具体实施方式"]
+    drawing_items = items[drawing_start:implementation_start]
+    descriptions: list[tuple[int, str]] = []
+    reference_sign_lines = []
+    for item in drawing_items:
+        if item.kind != "body":
+            raise ValueError("附图说明中只允许图名句和一段附图标记说明")
+        if item.text.startswith("图中："):
+            reference_sign_lines.append(item.text)
+            continue
+        match = FIGURE_DESCRIPTION_RE.fullmatch(item.text)
+        if match is None or "；" in item.text or len(item.text) > 80:
+            raise ValueError(f"附图说明必须一图一句且不得展开解释：{item.text[:80]}")
+        descriptions.append((int(match.group(1)), item.text))
+    expected_numbers = [figure.number for figure in figures]
+    if [number for number, _ in descriptions] != expected_numbers:
+        raise ValueError(f"附图说明图号必须与说明书附图一致：{[number for number, _ in descriptions]} != {expected_numbers}")
+    if len(reference_sign_lines) != 1:
+        raise ValueError("附图说明必须且只能包含一段以“图中：”开头的附图标记说明")
+
+    implementation_items = items[implementation_start + 1:]
+    if len(implementation_items) < 3:
+        raise ValueError("具体实施方式缺少引导段、实施例1标题或实施例正文")
+    intro = implementation_items[0]
+    example_heading = implementation_items[1]
+    if intro.kind != "body" or "实施例" not in intro.text or "附图" not in intro.text:
+        raise ValueError("具体实施方式标题后必须先有说明结合附图描述具体实施例的引导段")
+    if example_heading.kind != "heading" or not re.fullmatch(r"实施例\s*1[。.]?", example_heading.text):
+        raise ValueError("具体实施方式引导段后必须有明显的“实施例1。”标题")
+    embodiment_text = "\n".join(item.text for item in implementation_items[2:] if item.kind == "body")
+    cited = {
+        int(first or second)
+        for first, second in FIGURE_CITATION_RE.findall(embodiment_text)
+        if first or second
+    }
+    missing = sorted(set(expected_numbers) - cited)
+    if missing:
+        raise ValueError(f"实施例正文必须结合附图逐图说明，缺少引用：{missing}")
+
 def normalize_formula(value: str) -> str:
     text = value.strip()
     if text.startswith("$$") and text.endswith("$$"):
@@ -391,7 +521,7 @@ def looks_like_display_formula(value: str) -> bool:
 
 
 def classify_spec_block(value: str) -> SpecItem:
-    text = value.strip()
+    text = SPEC_PARAGRAPH_NUMBER_RE.sub("", value.strip())
     if text.startswith("$$") and text.endswith("$$"):
         return SpecItem("formula", normalize_formula(text))
     if text.startswith("```math") and text.endswith("```"):
@@ -860,9 +990,13 @@ def inspect_package(
     expected_math_count: int,
     heading_style_id: str,
     strong_style_id: str,
+    template_numbering: dict[int, set[int]] | None = None,
 ) -> dict:
     with ZipFile(path) as archive:
-        root = etree.fromstring(archive.read("word/document.xml"))
+        document_bytes = archive.read("word/document.xml")
+        numbering_bytes = archive.read("word/numbering.xml") if "word/numbering.xml" in archive.namelist() else None
+        root = etree.fromstring(document_bytes)
+    final_numbering = None if numbering_bytes is None else _parse_numbering_bytes(numbering_bytes)
     namespaces = {
         "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
         "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
@@ -881,6 +1015,8 @@ def inspect_package(
         raise RuntimeError(f"仍有公式占位符未转换：{markers}")
     if math_count != expected_math_count:
         raise RuntimeError(f"公式对象数量错误：期望 {expected_math_count}，实际 {math_count}")
+    # 这里必须消费最终 DOCX 内的编号定义，而不是组装前模板的旧映射。
+    validate_numbering_references(document_bytes, final_numbering)
     return {"math_count": math_count, "strong_heading_run_count": strong_count}
 
 
@@ -902,6 +1038,7 @@ def build_document(
     specification = parse_specification(spec_path)
     abstract, abstract_figure_number = parse_abstract(abstract_path)
     figures = parse_figures(figure_index_path)
+    validate_specification_structure(specification, figures)
     by_number = {figure.number: figure for figure in figures}
     if abstract_figure_number not in by_number:
         raise ValueError(f"摘要附图图号不存在：图{abstract_figure_number}")
@@ -917,11 +1054,41 @@ def build_document(
         (deepcopy(run._r.rPr) for run in doc.paragraphs[0].runs if run.text),
         None,
     )
+    template_numbering = parse_template_numbering(template_path)
     clear_body_keep_final_sectpr(doc, section_props[-1])
 
     last = None
+    claim_numpr = claim_ppr.find(qn("w:numPr"))
+    claim_numid_elem = claim_numpr.find(qn("w:numId")) if claim_numpr is not None else None
+    claim_num_id_value: int | None = None
+    if claim_numid_elem is not None and claim_numid_elem.get(qn("w:val")) is not None:
+        try:
+            claim_num_id_value = int(claim_numid_elem.get(qn("w:val")))
+        except ValueError:
+            claim_num_id_value = None
+    if claim_num_id_value not in (None, 0):
+        if template_numbering is None:
+            raise ValueError("模板缺少或损坏 word/numbering.xml，但权利要求模板存在编号引用")
+        available_levels = template_numbering.get(claim_num_id_value, set())
+        if not available_levels:
+            raise ValueError(
+                f"权利要求模板引用了未定义或无真实层级的 numId={claim_num_id_value}"
+            )
+    else:
+        # numId=0 是取消编号；不为取消编号的段落伪造编号实例。
+        available_levels = {0}
+    step_ppr = claim_step_properties(claim_ppr, available_levels)
     for claim in claims:
-        last = add_claim(doc, claim, claim_ppr, claim_rpr, registry, symbols)
+        parts = split_claim_paragraphs(claim)
+        for index, part in enumerate(parts):
+            last = add_claim(
+                doc,
+                part,
+                claim_ppr if index == 0 else step_ppr,
+                claim_rpr,
+                registry,
+                symbols,
+            )
     if last is None:
         raise ValueError("权利要求为空")
     end_section(last, section_props[0])
@@ -953,7 +1120,11 @@ def build_document(
         pdf_path = render_dir / f"{output_path.stem}.pdf"
     page_count = process_with_word(output_path, registry, pdf_path)
     package = inspect_package(
-        output_path, len(registry.specs), heading_style_id, strong_style_id
+        output_path,
+        len(registry.specs),
+        heading_style_id,
+        strong_style_id,
+        template_numbering=template_numbering or None,
     )
 
     check = Document(output_path)

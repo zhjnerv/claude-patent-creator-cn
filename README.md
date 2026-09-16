@@ -55,7 +55,7 @@ $cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请
 | `cn-patent-specification-reviewer` | 定位说明书对权利要求特征的文本证据，并组织充分公开、支持和功能性限定的人工语义复核 | 说明书、权利要求特征 | 支持矩阵、说明书专项报告 |
 | `cn-patent-formalities-reviewer` | 文件组成、标题、摘要字数、章节、图号、附图标记及条件性程序事项检查 | 申请文件 manifest | 形式专项报告 |
 | `cn-patent-reviewer` | 编排三类原始检查器和独立语义审查，冻结输入、规则及前置流程证据 | 四文书、manifest、provenance 工件 | review bundle、整改顺序、独立验证报告 |
-| `cn-patent-diagram-generator` | 分析用户修改范例，生成可批准的样式合同，并把 drawing brief v4 转成可编辑 Draw.io 附图，完成图文一致性、白边及DOCX交付绑定验收 | drawing brief、说明书、台账、架构合同；可选原图与用户范例 | style brief、`.drawio`、PNG、视觉复核、附图验证及DOCX交付验证 |
+| `cn-patent-diagram-generator` | 分析用户修改范例，提取紧凑布局并从原始母版安全重建，再把 drawing brief v4 转成可编辑 Draw.io 附图，完成图文一致性、白边及DOCX交付绑定验收 | drawing brief、说明书、台账、架构合同；可选原图与用户范例 | style brief、安全重建报告、`.drawio`、PNG、视觉复核、附图验证及DOCX交付验证 |
 
 各 Skill 的名称均使用 Codex 要求的全小写 hyphen-case，`SKILL.md` frontmatter 已通过 Codex Skill 校验器。
 
@@ -83,7 +83,7 @@ $cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请
 [6] 说明书、摘要与附图说明起草
       │
       ▼
-[7] 可选用户范例差异分析 → style brief v1 → drawing brief v4 → Draw.io 附图 → 视觉与图文一致性验收
+[7] 可选用户范例差异分析 → style brief v1 → 原始母版安全重建 → drawing brief v4 → Draw.io 附图 → 视觉与图文一致性验收
       │
       ▼
 [8] 权利要求 / 说明书 / 形式原始检查
@@ -179,11 +179,23 @@ py -m venv .venv
 
 本项目不提供业务型 Slash Command。自然语言请求由 Skill description 或显式 `$cn-patent-workflow` 触发，确定性步骤由各 Skill 自带脚本执行。
 
+## 附图术语约定
+
+项目对附图中的节点、外框、文字、关系边、原生关系标签、端口、路由点和间距使用统一称呼。完整术语表见：
+
+```text
+skills/cn-patent-diagram-generator/references/drawing-terminology.md
+```
+
+讨论“方框中的文字”时，整体称为“节点”，内部文字称为“节点文字”；讨论“箭头线上的文字”时，称为“原生关系标签”。“独立文本节点”专指脱离关系边的浮动文字对象，不得用于模拟关系标签。
+
 ## 质量边界
 
 - 中国法规则绑定 `references/cn-legal-sources/` 中的本地法源；
 - 客观约束由脚本和 JSON 合同判定，语义判断不伪装成确定性结论；
 - 形式或结构检查通过不等于申请具备新颖性、创造性或可授权性；
 - DOCX 结构检查通过不等于已经完成逐页视觉复核；
-- 附图节点必须通过 A4 归一化字号、框字比例、自动换行和文本容纳高度检查；不得以大框小字或缩小字号硬塞长文本。
+- 附图节点必须通过 A4 归一化字号、每行最多12个汉字的显式换行、外框不超过文字块高度2倍和文本容量检查；直接上下相连节点扣除原生关系标签和一个箭头头部后的有效空白必须处于相邻节点较小字体行高的2倍至3倍之间。
+- 圆柱型节点只用于明确的存储/记录对象；原生关系标签字号不小于相邻节点字号的三分之二，纵向标签上下各至少保留一个箭头头部高度。
+- 用户修改的 Draw.io 范例只传递紧凑布局和视觉规则；正式图须从原始母版安全重建，恢复真实关系端点和原生线条文字，禁止传播手工断连、自连接或独立标签。
 - 新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-claim-architecture/v1`、`cn-patent-drawing-brief/v4` 和 `cn-patent-drawing-visual-review/v2`；存在用户范例时增加已批准的 `cn-patent-drawing-style-brief/v1`。

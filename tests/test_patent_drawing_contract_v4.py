@@ -98,13 +98,33 @@ def fixture(tmp_path: Path) -> tuple[Path, Path]:
                 "reference_page_height": 1169,
                 "minimum_font_size": 14,
                 "maximum_width_to_font_size_ratio": 18,
-                "maximum_height_to_font_size_ratio": 9,
+                "maximum_frame_to_text_height_ratio": 2,
+                "maximum_chinese_characters_per_line": 12,
                 "horizontal_padding": 8,
                 "vertical_padding": 4,
                 "line_height_factor": 1.2,
                 "maximum_wrapped_lines": 4,
                 "wrap_required": True,
                 "font_autoshrink_allowed": False,
+            },
+            "vertical_spacing_policy": {
+                "minimum_effective_blank_to_font_height_ratio": 2,
+                "maximum_effective_blank_to_font_height_ratio": 3,
+                "subtract_native_edge_label_text_height": True,
+                "subtract_arrowhead_height": True,
+                "default_edge_label_font_size": 12,
+                "default_arrowhead_height": 6,
+            },
+            "node_shape_policy": {
+                "cylinder_requires_data_store_kind": True,
+                "cylinder_label_pattern": "存储|记录|数据库|数据表|缓存|仓库",
+            },
+            "relation_label_policy": {
+                "minimum_font_to_node_font_ratio": 0.6666666666666666,
+                "minimum_vertical_clearance_in_arrowhead_heights": 1,
+                "default_arrowhead_height": 6,
+                "centered_vertical_label_required": True,
+                "vertical_label_center_tolerance": 0.1,
             },
             "color_policy": {"mode": "monochrome", "grayscale_safe": True, "color_semantics_redundant": True, "max_nonwhite_fills": 1, "allowed_fill_colors": ["#FFFFFF"], "allowed_stroke_colors": ["#000000"]},
         },
@@ -150,7 +170,11 @@ def fixture(tmp_path: Path) -> tuple[Path, Path]:
                     {"step_id": "S2", "element_id": "STEP2", "claim_action": "判断是否满足输出条件", "specification_anchor": "步骤S2：判断是否满足输出条件"},
                     {"step_id": "S3", "element_id": "STEP3", "claim_action": "输出结果", "specification_anchor": "步骤S3：输出结果"},
                 ],
-                "decision_bindings": [{"decision_id": "D1", "element_id": "DECIDE", "condition": "是否满足输出条件"}],
+                "decision_bindings": [{
+                    "decision_id": "D1", "element_id": "DECIDE", "condition": "是否满足输出条件",
+                    "true_branch": {"relation_id": "R_TRUE", "target_step_id": "S3", "label": "是"},
+                    "false_branch": {"relation_id": "R_FALSE", "target_step_id": "S1", "label": "否"},
+                }],
                 "loop_bindings": [{"relation_id": "R_FALSE", "from_step_id": "S2", "to_step_id": "S1", "condition": "未满足输出条件"}],
                 "outputs": {"drawio": "drawings/图1-控制方法流程图.drawio", "preview_png": "review/图1-preview.png", "final_png": "drawings/图1-控制方法流程图.png", "export_report": "review/图1-export.json"},
             }
@@ -181,8 +205,40 @@ def test_v4_schema_is_utf8_json():
     assert constraints["native_edge_labels_required"]["const"] is True
     assert constraints["separate_relation_label_nodes_allowed"]["const"] is False
     assert "node_text_policy" in constraints
+    node_text_policy = constraints["node_text_policy"]
+    assert node_text_policy["properties"]["maximum_frame_to_text_height_ratio"]["maximum"] == 2
+    assert node_text_policy["properties"]["maximum_chinese_characters_per_line"]["maximum"] == 12
+    assert "maximum_height_to_font_size_ratio" not in node_text_policy["properties"]
+    spacing_policy = constraints["vertical_spacing_policy"]
+    assert spacing_policy["properties"]["minimum_effective_blank_to_font_height_ratio"]["const"] == 2
+    assert spacing_policy["properties"]["maximum_effective_blank_to_font_height_ratio"]["const"] == 3
+    assert spacing_policy["properties"]["subtract_native_edge_label_text_height"]["const"] is True
+    assert spacing_policy["properties"]["subtract_arrowhead_height"]["const"] is True
+    assert spacing_policy["properties"]["default_arrowhead_height"]["const"] == 6
+    shape_policy = constraints["node_shape_policy"]
+    assert shape_policy["properties"]["cylinder_requires_data_store_kind"]["const"] is True
+    label_policy = constraints["relation_label_policy"]
+    assert label_policy["properties"]["minimum_font_to_node_font_ratio"]["minimum"] == 2 / 3
+    assert label_policy["properties"]["minimum_vertical_clearance_in_arrowhead_heights"]["minimum"] == 1
     outputs = schema["properties"]["figures"]["items"]["properties"]["outputs"]["properties"]
     assert "svg" not in outputs
+
+
+def test_v4_rejects_weakened_node_and_spacing_limits(tmp_path):
+    brief, output = fixture(tmp_path)
+    payload = json.loads(brief.read_text(encoding="utf-8"))
+    policy = payload["global_constraints"]["node_text_policy"]
+    policy["maximum_frame_to_text_height_ratio"] = 2.1
+    policy["maximum_chinese_characters_per_line"] = 13
+    payload["global_constraints"]["vertical_spacing_policy"]["minimum_effective_blank_to_font_height_ratio"] = 1.5
+    payload["global_constraints"]["relation_label_policy"]["minimum_font_to_node_font_ratio"] = 0.5
+    write_json(brief, payload)
+    result = run(brief, output)
+    assert result.returncode == 2
+    found = codes(output)
+    assert "BRIEF-NODE-TEXT-POLICY" in found
+    assert "BRIEF-VERTICAL-SPACING-POLICY" in found
+    assert "BRIEF-RELATION-LABEL-POLICY" in found
 
 
 def test_v4_method_flowchart_passes(tmp_path):
@@ -288,7 +344,24 @@ def test_v4_approved_style_brief_is_bound_and_stale_hash_is_blocked(tmp_path):
         "visual_diff": {},
         "structural_anomalies": [],
         "reusable_style": {"page": {}, "grid_size": 10, "layout": {}, "typography": {}, "node_geometry": {}, "palette": {}, "edge_style": {}},
-        "application_policy": {"visual_only": True, "preserve_stable_ids": True, "preserve_element_labels": True, "preserve_relation_ids": True, "preserve_relation_endpoints": True, "preserve_method_topology": True},
+        "sanitization_plan": {
+            "required": False,
+            "strategy": "rebuild_from_baseline_apply_reference_geometry",
+            "baseline_topology_authority": True,
+            "copy_matched_node_geometry": True,
+            "copy_only_whitelisted_styles": True,
+            "reference_edges_are_style_only": True,
+            "restore_baseline_relation_ids": True,
+            "restore_baseline_relation_endpoints": True,
+            "restore_native_edge_labels": True,
+            "drop_reference_only_nodes": True,
+            "drop_reference_only_edges": True,
+            "reject_self_loops_not_in_baseline": True,
+            "repair_anomaly_codes": [],
+            "excluded_reference_node_ids": [],
+            "expected_postconditions": ["technical_diff_empty", "all_edges_have_source_and_target", "no_unregistered_self_loops", "no_detached_edge_labels", "baseline_relation_labels_restored"],
+        },
+        "application_policy": {"visual_only": True, "preserve_stable_ids": True, "preserve_element_labels": True, "preserve_relation_ids": True, "preserve_relation_endpoints": True, "preserve_method_topology": True, "rebuild_from_baseline": True, "drop_reference_only_nodes": True, "drop_reference_only_edges": True, "restore_native_edge_labels": True},
         "approval": {"status": "approved", "approved_visual_only": True, "approved_by": "用户", "approved_at": "2026-09-09", "acknowledged_anomaly_codes": []},
     }
     write_json(style, style_payload)

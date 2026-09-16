@@ -74,6 +74,9 @@
         "official_drawio_export_required",
         "visual_review_required",
         "node_text_policy",
+        "vertical_spacing_policy",
+        "relation_label_policy",
+        "node_shape_policy",
         "png_margin_policy"
       ],
       "properties": {
@@ -168,7 +171,8 @@
             "reference_page_height",
             "minimum_font_size",
             "maximum_width_to_font_size_ratio",
-            "maximum_height_to_font_size_ratio",
+            "maximum_frame_to_text_height_ratio",
+            "maximum_chinese_characters_per_line",
             "horizontal_padding",
             "vertical_padding",
             "line_height_factor",
@@ -198,11 +202,17 @@
               "maximum": 30,
               "default": 20
             },
-            "maximum_height_to_font_size_ratio": {
+            "maximum_frame_to_text_height_ratio": {
               "type": "number",
-              "minimum": 3,
+              "minimum": 1,
+              "maximum": 2,
+              "default": 2
+            },
+            "maximum_chinese_characters_per_line": {
+              "type": "integer",
+              "minimum": 1,
               "maximum": 12,
-              "default": 8
+              "default": 12
             },
             "horizontal_padding": {
               "type": "number",
@@ -217,7 +227,7 @@
             "line_height_factor": {
               "type": "number",
               "minimum": 1,
-              "maximum": 2,
+              "maximum": 1.2,
               "default": 1.2
             },
             "maximum_wrapped_lines": {
@@ -264,6 +274,94 @@
               "minimum": 220,
               "maximum": 255,
               "default": 245
+            }
+          },
+          "additionalProperties": false
+        },
+        "vertical_spacing_policy": {
+          "type": "object",
+          "required": [
+            "minimum_effective_blank_to_font_height_ratio",
+            "maximum_effective_blank_to_font_height_ratio",
+            "subtract_native_edge_label_text_height",
+            "subtract_arrowhead_height",
+            "default_edge_label_font_size",
+            "default_arrowhead_height"
+          ],
+          "properties": {
+            "minimum_effective_blank_to_font_height_ratio": {
+              "const": 2
+            },
+            "maximum_effective_blank_to_font_height_ratio": {
+              "const": 3
+            },
+            "subtract_native_edge_label_text_height": {
+              "const": true
+            },
+            "subtract_arrowhead_height": {
+              "const": true
+            },
+            "default_edge_label_font_size": {
+              "const": 12
+            },
+            "default_arrowhead_height": {
+              "const": 6
+            }
+          },
+          "additionalProperties": false
+        },
+        "node_shape_policy": {
+          "type": "object",
+          "required": [
+            "cylinder_requires_data_store_kind",
+            "cylinder_label_pattern"
+          ],
+          "properties": {
+            "cylinder_requires_data_store_kind": {
+              "const": true
+            },
+            "cylinder_label_pattern": {
+              "const": "存储|记录|数据库|数据表|缓存|仓库"
+            }
+          },
+          "additionalProperties": false
+        },
+        "relation_label_policy": {
+          "type": "object",
+          "required": [
+            "minimum_font_to_node_font_ratio",
+            "minimum_vertical_clearance_in_arrowhead_heights",
+            "default_arrowhead_height",
+            "centered_vertical_label_required",
+            "vertical_label_center_tolerance"
+          ],
+          "properties": {
+            "minimum_font_to_node_font_ratio": {
+              "type": "number",
+              "minimum": 0.6666666666666666,
+              "maximum": 1,
+              "default": 0.6666666666666666
+            },
+            "minimum_vertical_clearance_in_arrowhead_heights": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 3,
+              "default": 1
+            },
+            "default_arrowhead_height": {
+              "type": "number",
+              "minimum": 6,
+              "maximum": 24,
+              "default": 6
+            },
+            "centered_vertical_label_required": {
+              "const": true
+            },
+            "vertical_label_center_tolerance": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.1,
+              "default": 0.1
             }
           },
           "additionalProperties": false

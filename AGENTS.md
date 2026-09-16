@@ -14,7 +14,8 @@
 - 不提交客户案件、范本 PDF、缓存、索引、凭据、DOCX/PDF/PNG 临时产物或 `__pycache__`。
 - 新项目不得 import `Claude-Patent-Creator` 的 `mcp_server`；跨项目能力通过显式 provider 或结构化 JSON 传入。
 - DOCX 默认只做 ZIP/XML、分节、页眉、样式、公式对象和图片数量等机器检查；只有用户明确要求视觉检查时才导出 PDF/PNG。
-- 用户提供修改后的 Draw.io 范例时，必须先生成并确认 `cn-patent-drawing-style-brief/v1`；范例只传递视觉规则，技术元素、关系和 source/target 仍以 drawing brief 为准。
+- 用户提供修改后的 Draw.io 范例时，必须先生成并确认 `cn-patent-drawing-style-brief/v1`；同图修改稿须从原始母版运行安全重建，范例只传递紧凑布局与视觉规则，技术元素、关系、source/target和原生线条文字仍以 drawing brief/原始母版为准。
+- 附图沟通、合同和验收统一使用 `skills/cn-patent-diagram-generator/references/drawing-terminology.md` 中的术语；尤其区分节点、节点外框、节点文字、独立文本节点、关系边和原生关系标签。
 - 正式附图只保留 `.drawio` 和 PNG，不生成 SVG；PNG 必须由 Draw.io Desktop CLI 按 `diagram` 内容边界导出并通过白边门禁。
 - 最终 PNG 变化后必须重新组装 DOCX，并运行附图—DOCX交付验证；不得沿用绑定旧图片的 Word 文件。
 

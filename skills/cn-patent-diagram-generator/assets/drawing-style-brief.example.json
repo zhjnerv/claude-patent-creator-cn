@@ -109,7 +109,11 @@
     "preserve_element_labels": true,
     "preserve_relation_ids": true,
     "preserve_relation_endpoints": true,
-    "preserve_method_topology": true
+    "preserve_method_topology": true,
+    "rebuild_from_baseline": true,
+    "drop_reference_only_nodes": true,
+    "drop_reference_only_edges": true,
+    "restore_native_edge_labels": true
   },
   "approval": {
     "status": "approved",
@@ -118,6 +122,29 @@
     "approved_at": "2026-09-09T00:00:00+08:00",
     "acknowledged_anomaly_codes": [
       "STYLE-REFERENCE-ABSOLUTE-ENDPOINT"
+    ]
+  },
+  "sanitization_plan": {
+    "required": false,
+    "strategy": "rebuild_from_baseline_apply_reference_geometry",
+    "baseline_topology_authority": true,
+    "copy_matched_node_geometry": true,
+    "copy_only_whitelisted_styles": true,
+    "reference_edges_are_style_only": true,
+    "restore_baseline_relation_ids": true,
+    "restore_baseline_relation_endpoints": true,
+    "restore_native_edge_labels": true,
+    "drop_reference_only_nodes": true,
+    "drop_reference_only_edges": true,
+    "reject_self_loops_not_in_baseline": true,
+    "repair_anomaly_codes": [],
+    "excluded_reference_node_ids": [],
+    "expected_postconditions": [
+      "technical_diff_empty",
+      "all_edges_have_source_and_target",
+      "no_unregistered_self_loops",
+      "no_detached_edge_labels",
+      "baseline_relation_labels_restored"
     ]
   }
 }

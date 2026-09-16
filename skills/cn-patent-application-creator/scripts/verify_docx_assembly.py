@@ -32,6 +32,94 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 
+
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+W = "{" + W_NS + "}"
+
+
+def _integer(raw: str | None, label: str, *, level: bool = False) -> int:
+    if raw is None or not re.fullmatch(r"[0-9]+", raw):
+        raise ValueError(f"{label} 不是非负整数：{raw!r}")
+    value = int(raw)
+    if level and value > 8:
+        raise ValueError(f"{label} 超出编号层级 0—8：{value}")
+    return value
+
+
+def _parse_final_numbering(numbering_bytes: bytes) -> dict[int, set[int]]:
+    """只接受真实层级定义；startOverride 不能凭空增加层级。"""
+    root = ET.fromstring(numbering_bytes)
+    if root.tag != W + "numbering":
+        raise ValueError("word/numbering.xml 根节点必须为 w:numbering")
+    abstracts: dict[int, set[int]] = {}
+    for abstract in root.findall(W + "abstractNum"):
+        aid = _integer(abstract.get(W + "abstractNumId"), "abstractNumId")
+        if aid in abstracts:
+            raise ValueError(f"重复 abstractNumId={aid}")
+        levels: set[int] = set()
+        for item in abstract.findall(W + "lvl"):
+            level = _integer(item.get(W + "ilvl"), "lvl.ilvl", level=True)
+            if level in levels:
+                raise ValueError(f"abstractNumId={aid} 重复 ilvl={level}")
+            levels.add(level)
+        abstracts[aid] = levels
+    result: dict[int, set[int]] = {}
+    for num in root.findall(W + "num"):
+        nid = _integer(num.get(W + "numId"), "numId")
+        if nid == 0 or nid in result:
+            raise ValueError(f"编号实例 numId 无效或重复：{nid}")
+        ref = num.find(W + "abstractNumId")
+        aid = _integer(None if ref is None else ref.get(W + "val"), "abstractNumId 引用")
+        if aid not in abstracts:
+            raise ValueError(f"numId={nid} 引用了未定义 abstractNumId={aid}")
+        levels = set(abstracts[aid])
+        overrides: set[int] = set()
+        for override in num.findall(W + "lvlOverride"):
+            level = _integer(override.get(W + "ilvl"), "lvlOverride.ilvl", level=True)
+            if level in overrides:
+                raise ValueError(f"numId={nid} 重复 lvlOverride={level}")
+            overrides.add(level)
+            children = override.findall(W + "lvl")
+            if len(children) > 1:
+                raise ValueError("lvlOverride 只能包含一个 w:lvl")
+            if children:
+                child_level = _integer(children[0].get(W + "ilvl"), "lvl.ilvl", level=True)
+                if child_level != level:
+                    raise ValueError("lvlOverride 与其 w:lvl 的 ilvl 不一致")
+                levels.add(level)
+            elif level not in levels:
+                raise ValueError(f"numId={nid} 的 lvlOverride={level} 没有真实层级定义")
+        result[nid] = levels
+    return result
+
+
+def _validate_numbering_references(document_bytes: bytes, numbering: dict[int, set[int]] | None) -> None:
+    """检查显式编号引用；numId=0 表示取消继承编号，不引用编号实例。"""
+    root = ET.fromstring(document_bytes)
+    for numpr in root.findall(".//" + W + "numPr"):
+        numid = numpr.find(W + "numId")
+        if numid is None:
+            # 单独 ilvl 可能继承段落样式；此检查不推断未显式给出的 numId。
+            continue
+        nid = _integer(numid.get(W + "val"), "段落 numId")
+        if nid == 0:
+            continue
+        if numbering is None:
+            raise ValueError("最终 DOCX 缺少或损坏 word/numbering.xml，但存在编号引用")
+        levels = numbering.get(nid)
+        if levels is None:
+            raise ValueError(f"最终 DOCX 引用了未定义的 numId={nid}")
+        ilvl = numpr.find(W + "ilvl")
+        level = _integer("0" if ilvl is None else ilvl.get(W + "val"), "段落 ilvl", level=True)
+        if level not in levels:
+            raise ValueError(f"numId={nid} 引用了未定义层级 ilvl={level}")
+
+
+def _validate_final_numbering(document_bytes: bytes, numbering_bytes: bytes | None) -> None:
+    numbering = None if numbering_bytes is None else _parse_final_numbering(numbering_bytes)
+    _validate_numbering_references(document_bytes, numbering)
+
+
 def check_docx_package(path: Path, errors: list[dict[str, str]]) -> None:
     """检查 Word 会在打开阶段强制修复的最小 OOXML 结构问题。"""
     try:
@@ -46,14 +134,20 @@ def check_docx_package(path: Path, errors: list[dict[str, str]]) -> None:
                 errors.append({"code": "DOCX-PACKAGE-MISSING", "message": f"DOCX 缺少必需成员：{missing}"})
                 return
             document_bytes = archive.read("word/document.xml")
+            numbering_bytes = archive.read("word/numbering.xml") if "word/numbering.xml" in archive.namelist() else None
     except BadZipFile:
         errors.append({"code": "DOCX-PACKAGE-ZIP", "message": "输出文件不是有效 DOCX ZIP 包"})
         return
     try:
         document_text = document_bytes.decode("utf-8")
         ET.fromstring(document_bytes)
-    except (UnicodeDecodeError, ET.ParseError) as exc:
+    except (UnicodeDecodeError, ET.ParseError, ValueError) as exc:
         errors.append({"code": "DOCX-PACKAGE-XML", "message": f"word/document.xml 不是有效 XML：{exc}"})
+        return
+    try:
+        _validate_final_numbering(document_bytes, numbering_bytes)
+    except (ET.ParseError, ValueError) as exc:
+        errors.append({"code": "DOCX-PACKAGE-NUMBERING", "message": str(exc)})
         return
     root_match = re.search(r"<w:document\b[^>]*>", document_text)
     if root_match is None:
@@ -71,14 +165,25 @@ def check_docx_package(path: Path, errors: list[dict[str, str]]) -> None:
         })
 
 def verify(report_path: Path) -> dict[str, Any]:
+    report_path = report_path.resolve()
     report = load_json(report_path)
+    base_dir = report_path.parent
     errors: list[dict[str, str]] = []
+
+    def resolve_evidence_path(path_value: Any) -> Path | None:
+        if not isinstance(path_value, str) or not path_value:
+            return None
+        raw = Path(path_value)
+        return (raw if raw.is_absolute() else base_dir / raw).resolve()
 
     def check_file(path_value: Any, expected: Any, artifact_id: str) -> None:
         if not isinstance(path_value, str) or not path_value:
             errors.append({"code": "DOCX-EVIDENCE-PATH", "message": f"{artifact_id} 缺少路径"})
             return
-        path = Path(path_value).resolve()
+        path = resolve_evidence_path(path_value)
+        if path is None:
+            errors.append({"code": "DOCX-EVIDENCE-PATH", "message": f"{artifact_id} 缺少路径"})
+            return
         if not path.is_file():
             errors.append({"code": "DOCX-EVIDENCE-MISSING", "message": f"{artifact_id} 文件不存在：{path}"})
             return
@@ -92,8 +197,9 @@ def verify(report_path: Path) -> dict[str, Any]:
         errors.append({"code": "DOCX-EVIDENCE-STATUS", "message": "组装报告状态无效"})
     check_file(report.get("output"), report.get("output_sha256"), "output_docx")
     output_value = report.get("output")
-    if isinstance(output_value, str) and output_value and Path(output_value).resolve().is_file():
-        check_docx_package(Path(output_value).resolve(), errors)
+    output_path = resolve_evidence_path(output_value)
+    if output_path is not None and output_path.is_file():
+        check_docx_package(output_path, errors)
     inputs = report.get("inputs") or {}
     check_file(inputs.get("template"), inputs.get("template_sha256"), "template")
     artifacts = inputs.get("artifacts")
