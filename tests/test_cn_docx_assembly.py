@@ -615,3 +615,76 @@ def test_linux_build_document_with_single_level_template_does_not_reference_unde
     # 单级模板：步骤段落不应出现 ilvl=2，全部段落均使用模板已声明的 ilvl=0。
     assert "2" not in ilvl_values
     assert all(value == "0" for value in ilvl_values)
+
+
+def test_normalize_formula_with_latex_symbols():
+    """测试 LaTeX 符号宏转 Unicode：最长匹配、函数名、不支持的宏报错。"""
+    module = ASSEMBLER
+
+    # 1. 产品符号与运算符正确处理
+    assert module.normalize_formula(
+        r"\prod_{k \in K_c} I(r_k=a_k) \cdot I(x)"
+    ) == "∏_{k ∈ K_c} I(r_k=a_k) · I(x)"
+
+    # 2. 避免 \cdot 截断 \cdots；检验 \int 与 \infty 的独立性
+    assert module.normalize_formula(r"a \cdots b") == "a ⋯ b"
+    assert module.normalize_formula(r"\int_0^\infty x \in X") == "∫_0^∞ x ∈ X"
+
+    # 3. 函数名宏转为普通标识符
+    assert module.normalize_formula(
+        r"\alpha_i + \max_{w} f(w)"
+    ) == "α_i + max_{w} f(w)"
+
+    # 4. \left \right 忽略、多余空格被去掉
+    result = module.normalize_formula(r"\left( a \right)")
+    assert result.replace(" ", "") == "(a)"
+    # 解析不抛异常
+    parsed = module.FormulaParser(result).parse()
+    assert parsed is not None
+
+    # 5. 转义字符 \{ \} 转为字面字符，可解析
+    assert module.normalize_formula(r"\{a,b\}") == "{a,b}"
+    parsed = module.FormulaParser("{a,b}").parse()
+    assert parsed.kind == "delimiter" and parsed.value == "{}"
+
+    # 6. 不支持的宏报错
+    with pytest.raises(ValueError) as exc_info:
+        module.normalize_formula(r"\frac{a}{b}")
+    assert r"\frac" in str(exc_info.value)
+
+    with pytest.raises(ValueError) as exc_info:
+        module.normalize_formula(r"TTL\_inv")
+    assert r"\_" in str(exc_info.value)
+
+    with pytest.raises(ValueError) as exc_info:
+        module.normalize_formula(r"\hat{y}")
+    assert r"\hat" in str(exc_info.value)
+
+
+def test_normalize_formula_build_omath_with_latex_symbols(tmp_path):
+    """测试 LaTeX 符号在 OMML 中的正确结构和无反斜杠。"""
+    module = ASSEMBLER
+
+    # 用 \prod 和 \in 构建公式，验证 OMML 输出
+    formula = r"\prod_{k \in K} x_k"
+    root = module.build_omath(formula)
+    xml = etree.tostring(root)
+
+    # 断言不含反斜杠
+    assert b"\\" not in xml
+
+    # 断言 XML 中含下标结构
+    namespaces = {"m": "http://schemas.openxmlformats.org/officeDocument/2006/math"}
+    parsed = etree.fromstring(xml)
+    assert len(parsed.xpath(".//m:sSub", namespaces=namespaces)) >= 1
+
+
+def test_normalize_formula_legacy_block_formats():
+    """验证现有的块格式处理不回归。"""
+    module = ASSEMBLER
+
+    assert module.normalize_formula("$$ a_i + b $$") == "a_i + b"
+    assert module.normalize_formula("```math\nx = y\n```") == "x = y"
+
+    # 验证尾随 。 被去掉
+    assert module.normalize_formula("$$ a + b 。 $$") == "a + b"

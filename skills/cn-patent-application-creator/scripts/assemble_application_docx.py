@@ -502,12 +502,75 @@ def validate_specification_structure(items: list[SpecItem], figures: list[Figure
     if missing:
         raise ValueError(f"实施例正文必须结合附图逐图说明，缺少引用：{missing}")
 
+LATEX_SYMBOL_MACROS: dict[str, str] = {
+    # 希腊字母
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "varepsilon": "ε",
+    "zeta": "ζ", "eta": "η", "theta": "θ", "vartheta": "ϑ", "iota": "ι", "kappa": "κ",
+    "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "pi": "π", "rho": "ρ", "sigma": "σ",
+    "varsigma": "ς", "tau": "τ", "upsilon": "υ", "phi": "φ", "varphi": "φ", "chi": "χ",
+    "psi": "ψ", "omega": "ω",
+    "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Xi": "Ξ", "Pi": "Π",
+    "Sigma": "Σ", "Upsilon": "Υ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω",
+    # 大型运算符（注意 \sum 用 U+2211 ∑，不用希腊 Σ）
+    "sum": "∑", "prod": "∏", "int": "∫", "oint": "∮", "bigcup": "⋃", "bigcap": "⋂",
+    # 二元运算符
+    "cdot": "·", "times": "×", "div": "÷", "pm": "±", "mp": "∓", "ast": "*", "star": "★",
+    "circ": "∘", "bullet": "•", "oplus": "⊕", "otimes": "⊗", "cap": "∩", "cup": "∪",
+    "land": "∧", "wedge": "∧", "lor": "∨", "vee": "∨", "lnot": "¬", "neg": "¬", "setminus": "∖",
+    # 关系符
+    "leq": "≤", "le": "≤", "geq": "≥", "ge": "≥", "neq": "≠", "ne": "≠", "equiv": "≡",
+    "approx": "≈", "sim": "∼", "simeq": "≃", "cong": "≅", "propto": "∝", "ll": "≪", "gg": "≫",
+    "in": "∈", "notin": "∉", "ni": "∋", "subset": "⊂", "subseteq": "⊆", "supset": "⊃",
+    "supseteq": "⊇", "perp": "⊥", "parallel": "∥", "mid": "|",
+    # 逻辑与集合
+    "forall": "∀", "exists": "∃", "nexists": "∄", "emptyset": "∅", "varnothing": "∅",
+    "infty": "∞", "partial": "∂", "nabla": "∇",
+    # 箭头
+    "leftarrow": "←", "gets": "←", "rightarrow": "→", "to": "→", "uparrow": "↑", "downarrow": "↓",
+    "leftrightarrow": "↔", "Leftarrow": "⇐", "Rightarrow": "⇒", "Uparrow": "⇑", "Downarrow": "⇓",
+    "Leftrightarrow": "⇔", "mapsto": "↦",
+    # 定界与省略
+    "langle": "⟨", "rangle": "⟩", "lfloor": "⌊", "rfloor": "⌋", "lceil": "⌈", "rceil": "⌉",
+    "ldots": "…", "dots": "…", "cdots": "⋯", "vdots": "⋮", "ddots": "⋱",
+    # 尺寸与间距提示：\left \right 无输出，\quad \qquad 为单空格
+    "left": "", "right": "", "quad": " ", "qquad": " ",
+}
+# 函数名宏：去掉反斜杠后保留为普通标识符（\max_{w} -> max_{w}）
+LATEX_OPERATOR_NAME_MACROS = frozenset({
+    "max", "min", "arg", "argmax", "argmin", "log", "ln", "lg", "exp", "sin", "cos", "tan",
+    "cot", "sec", "csc", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "lim", "sup",
+    "inf", "det", "dim", "gcd", "deg", "Pr", "mod", "bmod",
+})
+# 非字母转义：\{ \} \| 是可见字面字符；\, \; \: 为细空格；\! 为负空格。注意：\_ 故意不在表中。
+LATEX_LITERAL_ESCAPES = {"\\{": "{", "\\}": "}", "\\|": "|", "\\,": " ", "\\;": " ", "\\:": " ", "\\!": ""}
+LATEX_MACRO_RE = re.compile(r"\\([A-Za-z]+)")
+LATEX_RESIDUAL_RE = re.compile(r"\\(?:[A-Za-z]+|.)?", re.DOTALL)
+
+
+def _replace_latex_macro(match: re.Match[str]) -> str:
+    name = match.group(1)
+    if name in LATEX_SYMBOL_MACROS:
+        return LATEX_SYMBOL_MACROS[name]
+    if name in LATEX_OPERATOR_NAME_MACROS:
+        return name
+    return match.group(0)  # 未知宏原样保留，由残留检查报错
+
+
 def normalize_formula(value: str) -> str:
     text = value.strip()
     if text.startswith("$$") and text.endswith("$$"):
         text = text[2:-2].strip()
     if text.startswith("```math") and text.endswith("```"):
         text = text[len("```math") : -3].strip()
+    text = LATEX_MACRO_RE.sub(_replace_latex_macro, text)
+    for escape, literal in LATEX_LITERAL_ESCAPES.items():
+        text = text.replace(escape, literal)
+    if "\\" in text:
+        unsupported = sorted(set(LATEX_RESIDUAL_RE.findall(text)))
+        raise ValueError(
+            "公式包含组装器不支持的 LaTeX 宏或转义：" + "、".join(unsupported)
+            + "；请改写为 a/b、x_{i}、x^{2}、Unicode 符号或直接去掉反斜杠后重试。"
+        )
     return text.removesuffix("。").strip()
 
 
