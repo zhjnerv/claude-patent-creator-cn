@@ -164,6 +164,28 @@ def check_docx_package(path: Path, errors: list[dict[str, str]]) -> None:
             "message": f"mc:Ignorable 引用了未声明的命名空间前缀：{missing_ignored}；Microsoft Word 会提示恢复文档",
         })
 
+def check_pending_marks(path: Path, copy_kind: str, pending_marks: list | None, errors: list[dict[str, str]]) -> None:
+    if pending_marks is None:
+        pending_marks = []
+    try:
+        with ZipFile(path) as archive:
+            if "word/document.xml" not in archive.namelist():
+                return
+            document_text = archive.read("word/document.xml").decode("utf-8")
+    except Exception:
+        return
+
+    if copy_kind == "submission":
+        if "【待决" in document_text:
+            errors.append({"code": "DOCX-PENDING-MARKS", "message": "提交副本存在残缺待决标记"})
+        if re.search(r'<w:highlight[^>]*w:val="yellow"[^>]*>', document_text):
+            errors.append({"code": "DOCX-PENDING-MARKS", "message": "提交副本存在黄色高亮"})
+    elif copy_kind == "review":
+        for pm in pending_marks:
+            pm_id = pm.get("id")
+            if pm_id and f"【待决-{pm_id}】" not in document_text:
+                errors.append({"code": "DOCX-PENDING-MARKS", "message": f"客户审稿版丢失待决标记 {pm_id}"})
+
 def verify(report_path: Path) -> dict[str, Any]:
     report_path = report_path.resolve()
     report = load_json(report_path)
@@ -200,6 +222,9 @@ def verify(report_path: Path) -> dict[str, Any]:
     output_path = resolve_evidence_path(output_value)
     if output_path is not None and output_path.is_file():
         check_docx_package(output_path, errors)
+        copy_kind = report.get("copy_kind")
+        if copy_kind in {"review", "submission"}:
+            check_pending_marks(output_path, copy_kind, report.get("pending_marks"), errors)
     inputs = report.get("inputs") or {}
     check_file(inputs.get("template"), inputs.get("template_sha256"), "template")
     artifacts = inputs.get("artifacts")

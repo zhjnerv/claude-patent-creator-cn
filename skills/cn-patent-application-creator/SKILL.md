@@ -244,6 +244,20 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 
 首次建立台账时权利要求与说明书尚未撰写，此时只需通过合同校验；阶段 3 每完成一份文件即重跑一次，阶段 5 收窄权利要求后必须重跑。**退出码 `0` 只表示四向登记可对账，不代表清楚、支持、必要技术特征或创造性成立。**
 
+### 2-D2 创造性防御地图（强制）
+
+在提取出区别特征表之后，必须建立防线地图（见 `references/inventive-step-map.md` 和 `references/inventive-step-map-schema-v1.json`）。该地图评估区别特征与对比文件及公知常识的被击穿风险：
+1. **映射与耦合**：配置区别特征在各文献的 disclosed 状态或公知常识的 risk，并登记说明书中可逐字命名的耦合机理。
+2. **复算验证**：执行以下验证，复算并拦截被文献轻易组合击破的弱防线：
+```bash
+python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}/scripts/run_python.py" "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}/skills/cn-patent-application-creator/scripts/validate_inventive_step_map.py" \
+  --map "<inventive-step-map.json>" \
+  --case-dir "<案件根目录>" \
+  --claims "<权利要求书.txt>" \
+  --specification "<说明书.txt>"
+```
+3. 任何非 defensible 的权利要求组，或者包含过多 partial 的情况，都会以 pending decisions 挂起，强制人工定夺风险。
+
 ### 2-E：阶段门（未过门不得起草）
 
 约束写成文档口号就等于没有约束。"人工检索未完成时必须写未完成"这句话，在"写了未完成再继续"的路径下字面合规——上一轮正是这样在检索未完成、范本未确认的情况下产出了权利要求和说明书，事后才补范本学习并返工三轮。
@@ -259,12 +273,12 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 
 | 状态位 | 放行条件 |
 |---|---|
-| `cnipa_manual_search.status` | `completed` 须附逐条检索记录；`partial`／`not_completed` 须附**用户原话**授权 |
-| `template_selection.status` | `confirmed` 须列出已生成的 style-guide 并附用户原话；`declined` 须附用户原话；**`pending` 一律阻断** |
+| `cnipa_manual_search.status` | `completed` 须附逐条检索记录；`partial`／`not_completed` 无用户原话时按保守默认继续并写入待决清单 |
+| `template_selection.status` | `confirmed` 须列出已生成的 style-guide；`declined` 和 `pending` 无用户原话时按保守默认继续并写入待决清单 |
 | `style_brief_path` | 存在、schema 正确、来源模式与范本确认状态一致、含 `organization` |
 | `feature_ledger_path` | 存在、schema 正确、至少有一个区别特征 |
 
-**跳过必须携带用户原话。** agent 复述的"用户已同意"不构成授权——`user_quote` 要求逐字引用，让越权在文件里留下可核对的痕迹。退出码 `2` 表示未过门，此时不得开始撰写权利要求与说明书。
+对于缺少用户原话的情况，阶段门不再阻断，而是无用户原话时按保守默认继续并写入待决清单。只有文件缺失、哈希不一致、schema 错误才阻断。这确保在保证产物有效性的前提下，不因子环节等待人为确认而中断撰写。待决事项详情参见 `references/pending-decisions.md`。退出码 `2` 表示未过门（遇文件/哈希/schema级硬阻断），此时不得开始撰写权利要求与说明书。
 
 ## 阶段 3——权利要求优先的撰写
 
@@ -289,7 +303,7 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 
 **实施例形态服从范本组织方式。** `style-brief.json` 的 `specification.embodiments.organization` 决定说明书形态：`sectioned` 才允许拆成 `### 实施例N`；`single_flow` 与 `none` 必须收敛为一条实施方式脉络，变体用"作为替代或者与前述实施方式组合"一类的过渡写在同一脉络内。**按实施例数量机械拆节是错的**——数量回答不了形态。简报里的 `warnings` 每一条都必须处理或记录不处理的理由。
 
-**权利要求架构门（强制）。** 权利要求和说明书形成后、绘图合同生成前，必须建立 `cn-patent-claim-architecture/v1`（见 `references/claim-architecture-schema-v1.json` 和 `references/claim-architecture.md`），执行：
+**权利要求架构门（强制）。** 权利要求和说明书形成后、绘图合同生成前，必须建立 `cn-patent-claim-architecture/v1`（见 `references/claim-architecture-schema-v1.json` 和 `references/claim-architecture.md`）。架构合同的 `core_protection_point` 必须与创造性防御地图复算一致。执行：
 
 ```bash
 python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}/scripts/run_python.py" "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}/skills/cn-patent-application-creator/scripts/validate_claim_architecture.py" \
@@ -413,6 +427,19 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 
 ## 阶段 6——打包
 
+**先汇总待决事项，再出两种副本。** 一旦进入撰写，流程不因任何判断题停下：阶段门、台账、架构门、创造性防御地图、附图复核等脚本遇到需要人拍板的事项时，一律采用保守默认继续，并在各自报告的 `pending_decisions` 中留痕（形状见 `references/pending-decisions.md`）。打包前把全部报告交给收集器，得到 `pending-decisions.json` 与《待决事项清单.md》：
+
+```bash
+python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}/scripts/run_python.py" "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}/skills/cn-patent-application-creator/scripts/collect_pending_decisions.py" \
+  --case-dir "<案件根目录>" \
+  --report "<stage2-gate-report.json>" --report "<feature-ledger-report.json>" \
+  --report "<inventive-step-map-validation.json>" --report "<claim-architecture-validation.json>" \
+  --report "<drawing-verification.json>" \
+  --output "<pending-decisions.json>" --table "<待决事项清单.md>"
+```
+
+与权利要求、说明书或摘要正文直接相关的待决项，在工作副本对应位置写入 `【待决-D001】` 标记（编号取自清单）。DOCX 组装用 `--copy review` 生成客户审稿版：标记保留、所在段落黄色高亮；用 `--copy submission` 生成提交副本：标记机械剥离、不得残留高亮，`verify_docx_assembly.py` 以 `DOCX-PENDING-MARKS` 复核。待决清单与审稿版一起交付，提交副本永远不带待决信息。
+
 **工作副本和提交副本是分开的文件，提交副本是机械生成的。** 提交文件只包含法定内容——零括号策略笔记、零检查器分数、零"与现有技术对比"评注、零后续步骤章节。背景技术部分不做关于现有技术的绝对性承认（写"发明人已知的"，不写"没有任何系统做 X"）。用脚本从工作副本剥离提交副本，然后 diff 核对没有任何残留。
 
 ### Word 模板组装（用户要求或案件存在输出模板时）
@@ -480,3 +507,4 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 - 花预算证明一项权利要求可能授权，却从不问最终得到的篱笆值不值得拥有——值不值得做在分类时提出、在检索收窄地带时重新提出、在攻击演练收窄权利要求时再次提出。
 - **把"机制名称"当区别特征写进权 1。** 没有条件、绑定或参数限定的机制名称被公知常识一句话吃掉——审查员只需说"本领域技术人员知道该机制"。
 - **攻击一次就往权 1 加一层限定。** 权 1 越写越长，保护范围越来越琐碎；必须先走换特征→重述问题→降层级的不加字路径。
+- **因为一个判断题没人拍板就停下流程。** 检索未完成、范本未确认、复核未批准、公知常识拿不准，都不是不产出申请文件的理由；采用保守默认继续，把问题写进待决清单和审稿版标记，交给发明人和代理人决定。只有产物本身无效或不安全（覆盖输入、哈希过期、编号断裂、DOCX 损坏）才允许阻断。

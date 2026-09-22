@@ -268,3 +268,45 @@ def test_stage_gate_accepts_concise_verbatim_user_authorization(tmp_path):
     assert module.require_authorization(
         {"user_quote": "同意", "granted_at": "2026-09-08"}, "范本确认"
     ) == "同意"
+
+def test_stage_gate_pending_template_is_cleared_with_pending(tmp_path):
+    state, output = _gate_fixture(tmp_path)
+    state_payload = json.loads(state.read_text(encoding="utf-8"))
+    state_payload["template_selection"]["status"] = "pending"
+    _write_json(state, state_payload)
+
+    # Also update style-brief.json to match "pending" template selection
+    brief_path = tmp_path / "style-brief.json"
+    brief_payload = json.loads(brief_path.read_text(encoding="utf-8"))
+    brief_payload["source"]["mode"] = "default"
+    _write_json(brief_path, brief_payload)
+
+    result = _run(GATE, "--state", str(state), "--workspace", str(tmp_path), "--output", str(output))
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["decision"] == "CLEARED_WITH_PENDING"
+    assert any(p["key"] == "template.selection_pending" for p in report["pending_decisions"])
+
+def test_stage_gate_search_not_completed_no_quote_is_cleared_with_pending(tmp_path):
+    state, output = _gate_fixture(tmp_path)
+    state_payload = json.loads(state.read_text(encoding="utf-8"))
+    state_payload["cnipa_manual_search"]["status"] = "not_completed"
+    state_payload["cnipa_manual_search"].pop("user_authorization", None)
+    _write_json(state, state_payload)
+    result = _run(GATE, "--state", str(state), "--workspace", str(tmp_path), "--output", str(output))
+    assert result.returncode == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["decision"] == "CLEARED_WITH_PENDING"
+    assert any(p["key"] == "search.cnipa_manual_search_pending_authorization" for p in report["pending_decisions"])
+
+def test_stage_gate_search_not_completed_with_quote_is_cleared_no_pending(tmp_path):
+    state, output = _gate_fixture(tmp_path)
+    state_payload = json.loads(state.read_text(encoding="utf-8"))
+    state_payload["cnipa_manual_search"]["status"] = "not_completed"
+    state_payload["cnipa_manual_search"]["user_authorization"] = {"user_quote": "同意", "granted_at": "2026-09-22"}
+    _write_json(state, state_payload)
+    result = _run(GATE, "--state", str(state), "--workspace", str(tmp_path), "--output", str(output))
+    assert result.returncode == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["decision"] == "CLEARED"
+    assert not any(p["key"] == "search.cnipa_manual_search_pending_authorization" for p in report.get("pending_decisions", []))

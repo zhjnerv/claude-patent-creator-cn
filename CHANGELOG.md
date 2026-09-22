@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增待决事项机制 `cn-patent-pending-decisions/v1`：阶段门（检索/范本/IPC 缺用户原话）、台账（未检索/缺效果/表述抽象）、架构门（简要性与核心保护点复核未批准）、附图（视觉复核与样式简报未批准）等判断题门不再阻断，改为保守默认 + `pending_decisions` + 继续；`collect_pending_decisions.py` 汇总为 JSON 与《待决事项清单.md》；DOCX 组装新增 `--copy review|submission`，审稿版对 `【待决-Dnnn】` 段落黄色高亮，提交副本剥离标记并由 `DOCX-PENDING-MARKS` 复核。产物有效性门（哈希、编号、引用、DOCX 结构）保持硬阻断。
+- 实现创造性防御地图 `cn-patent-inventive-step-map/v1`（schema、`validate_inventive_step_map.py`、参考文档）：特征 × 对比文件矩阵含 `COMMON_KNOWLEDGE` 虚拟条目；最小集合覆盖复算、显式优先级分级、耦合须有说明书逐字锚点且无单篇同时覆盖；claim_set 由权利要求自动推导（每个独权及其直接从属项各自成组）；partial 不计覆盖但过半提示，公知常识 medium 与未检索特征按最坏情况参与分级并写入待决；核心保护点须为最小 defensible 特征集之一。
 - 台账构建器新增 `CN-LEDGER-ABSTRACT-001`（区别特征表述缺少条件/位置/参数/绑定/时序限定时提示复核，判句法结构不判词表）；`CN-LEDGER-PRIOR-002` 升级为阻断。新增创造性防御地图 `cn-patent-inventive-step-map/v1` 设计稿（`docs/process-improvements/2026-09-22-inventive-step-map/`，待实现）。
 - 新增区别特征形态清单（`references/distinguishing-feature-patterns.md`）与抽象层级测试；阶段 1 和 2-C 按六种形态发现区别特征，2-C 增加"争议地带"第三态；权利要求 1 增加句法规则与起草期删除测试；阶段 5a 攻击响应改为换特征→重述问题→降层级→加特征强制顺序，向权 1 加字须书面说明。
 

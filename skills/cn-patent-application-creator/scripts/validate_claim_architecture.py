@@ -137,12 +137,16 @@ def validate_contract(
                 output_guard.protect_inputs([resolve_under(case_dir, item["path"], "来源")])
     errors: list[dict[str, str]] = []
     reviews: list[dict[str, str]] = []
+    pending_decisions: list[dict[str, Any]] = []
 
     def error(code: str, target: str, message: str) -> None:
         errors.append({"code": code, "target": target, "message": message})
 
     def review(code: str, target: str, message: str) -> None:
         reviews.append({"code": code, "target": target, "message": message})
+
+    def pending(decision: dict[str, Any]) -> None:
+        pending_decisions.append(decision)
 
     claims_text = read_utf8(claims_path, "权利要求书")
     specification_text = read_utf8(specification_path, "说明书")
@@ -259,10 +263,18 @@ def validate_contract(
         if not isinstance(decision, dict) or decision.get("status") not in {"pending", "approved", "revise"}:
             error("ARCH-CARRIER-REVIEW", f"claim{number}", "必须提供pending、approved或revise的简要性复核状态")
             continue
-        if not str(decision.get("statement", "")).strip() or not str(decision.get("reviewed_at", "")).strip():
-            error("ARCH-CARRIER-REVIEW", f"claim{number}", "简要性复核必须提供说明和日期")
-        if decision.get("status") != "approved":
-            error("ARCH-CARRIER-REVIEW", f"claim{number}", "简要性复核未批准，不得进入后续阶段")
+        if not str(decision.get("statement", "")).strip() or not str(decision.get("reviewed_at", "")).strip() or decision.get("status") != "approved":
+            review("ARCH-CARRIER-REVIEW", f"claim{number}", "简要性复核未批准或缺说明/日期")
+            pending({
+                "key": "architecture.conciseness_review_pending",
+                "source": {"tool_id": "validate_claim_architecture", "rule_id": "ARCH-CARRIER-REVIEW"},
+                "target": {"kind": "claim", "locator": f"权利要求{number}"},
+                "question": "简要性复核尚未批准或信息不全",
+                "adopted_default": "按当前载体分工继续，独权保持现状",
+                "options": ["批准当前分工", "调整后重新复核"],
+                "impact": ["protection_scope"],
+                "decider": "attorney"
+            })
         overloaded = formula_count >= 3 or symbol_count >= 5 or len(phases) >= 3
         if overloaded:
             review("ARCH-CARRIER-COMPLEXITY", f"claim{number}", "独权含较多公式、符号定义或执行阶段；已要求人工确认载体分工，不以数量直接认定法律缺陷")
@@ -401,7 +413,17 @@ def validate_contract(
                 if not isinstance(review_reviewed_at, str) or not review_reviewed_at.strip():
                     error("ARCH-CORE-REVIEW", "core_protection_point.review", "review.reviewed_at 必须是非空字符串")
                 if review_status != "approved":
-                    error("ARCH-CORE-REVIEW", "core_protection_point", "核心保护点复核未批准，不得进入后续阶段")
+                    review("ARCH-CORE-REVIEW", "core_protection_point", "核心保护点复核未批准")
+                    pending({
+                        "key": "architecture.core_point_review_pending",
+                        "source": {"tool_id": "validate_claim_architecture", "rule_id": "ARCH-CORE-REVIEW"},
+                        "target": {"kind": "claim", "locator": "权利要求2"},
+                        "question": "核心保护点复核尚未批准",
+                        "adopted_default": "按当前载体分工继续，独权保持现状",
+                        "options": ["批准当前核心点", "调整核心点"],
+                        "impact": ["grant_risk", "protection_scope"],
+                        "decider": "both"
+                    })
             else:
                 error("ARCH-CORE-REVIEW", "core_protection_point", "review 必须是对象")
 
@@ -528,6 +550,7 @@ def validate_contract(
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "review_required": reviews,
+        "pending_decisions": pending_decisions,
         "sources": bound_sources,
         "evidence_scope": {
             "proves": [

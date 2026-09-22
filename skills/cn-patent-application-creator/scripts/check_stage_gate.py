@@ -73,21 +73,16 @@ def load_json(path: Path, label: str) -> tuple[dict[str, Any], bytes]:
     return data, raw
 
 
-def require_authorization(block: Any, label: str) -> str:
-    """跳过必须携带用户原话。
-
-    agent 复述的"用户已同意"不算授权——那正是上一轮把"未完成"写进文件后
-    继续起草的路径。这里要求逐字引用，让越权在文件里留下可核对的痕迹。
-    """
-
+def require_authorization(block: Any, label: str) -> str | None:
+    """提取用户原话，如果不存在则返回 None。"""
     if not isinstance(block, dict):
-        raise GateError(f"{label}必须提供 user_authorization 对象")
+        return None
     quote = block.get("user_quote")
     if not isinstance(quote, str) or not quote.strip():
-        raise GateError(f"{label}的 user_authorization.user_quote 必须是非空的用户原话")
+        return None
     granted_at = block.get("granted_at")
     if not isinstance(granted_at, str) or not granted_at.strip():
-        raise GateError(f"{label}的 user_authorization.granted_at 必须提供授权日期")
+        return None
     return quote.strip()
 
 
@@ -95,12 +90,16 @@ class Gate:
     def __init__(self) -> None:
         self.blocks: list[dict[str, str]] = []
         self.notes: list[dict[str, str]] = []
+        self.pending_decisions: list[dict[str, Any]] = []
 
     def block(self, gate_id: str, reason: str, remedy: str) -> None:
         self.blocks.append({"gate_id": gate_id, "reason": reason, "remedy": remedy})
 
     def note(self, gate_id: str, message: str) -> None:
         self.notes.append({"gate_id": gate_id, "message": message})
+
+    def pending(self, decision: dict[str, Any]) -> None:
+        self.pending_decisions.append(decision)
 
 
 def check_search(state: dict[str, Any], gate: Gate) -> None:
@@ -145,11 +144,24 @@ def check_search(state: dict[str, Any], gate: Gate) -> None:
         search.get("user_authorization"),
         f"CNIPA 人工检索状态为 {status} 时",
     )
-    gate.note(
-        "GATE-SEARCH-003",
-        f"CNIPA 人工检索为 {status}，凭用户授权继续：“{quote}”。"
-        "文件包必须写明未完成官方库穷举检索，新颖性与创造性维度保持 INCONCLUSIVE。",
-    )
+    if quote:
+        gate.note(
+            "GATE-SEARCH-003",
+            f"CNIPA 人工检索为 {status}，凭用户授权继续：“{quote}”。"
+            "文件包必须写明未完成官方库穷举检索，新颖性与创造性维度保持 INCONCLUSIVE。",
+        )
+    else:
+        gate.pending({
+            "key": "search.cnipa_manual_search_pending_authorization",
+            "source": {"tool_id": "check_stage_gate", "rule_id": "GATE-SEARCH-003"},
+            "target": {"kind": "process", "locator": "cnipa_manual_search"},
+            "question": f"CNIPA 人工检索状态为 {status}，是否授权继续？",
+            "adopted_default": "按官方库穷举未完成继续；新颖性/创造性维度保持 INCONCLUSIVE",
+            "options": ["授权继续", "补充检索记录"],
+            "impact": ["grant_risk"],
+            "decider": "attorney"
+        })
+        gate.note("GATE-SEARCH-003", f"CNIPA 人工检索未提供用户授权，产生待决项，按官方库穷举未完成继续。")
 
 
 def check_template(state: dict[str, Any], gate: Gate, workspace: Path) -> list[Path]:
@@ -163,11 +175,16 @@ def check_template(state: dict[str, Any], gate: Gate, workspace: Path) -> list[P
         )
 
     if status == "pending":
-        gate.block(
-            "GATE-TEMPLATE-001",
-            "范本仍处于 pending：用户尚未确认参照范本，也未明确表示不使用范本",
-            "等待用户确认范本后把状态改为 confirmed，或在用户明确放弃范本后改为 declined",
-        )
+        gate.pending({
+            "key": "template.selection_pending",
+            "source": {"tool_id": "check_stage_gate", "rule_id": "GATE-TEMPLATE-001"},
+            "target": {"kind": "process", "locator": "template_selection"},
+            "question": "是否确认使用范本？",
+            "adopted_default": "不加载范本，用默认起草策略",
+            "options": ["确认范本", "不使用范本"],
+            "impact": ["formality"],
+            "decider": "attorney"
+        })
         return []
 
     if status == "declined":
@@ -175,7 +192,19 @@ def check_template(state: dict[str, Any], gate: Gate, workspace: Path) -> list[P
             template.get("user_authorization"),
             "范本状态为 declined 时",
         )
-        gate.note("GATE-TEMPLATE-002", f"用户明确不使用范本：“{quote}”，按默认起草策略执行")
+        if quote:
+            gate.note("GATE-TEMPLATE-002", f"用户明确不使用范本：“{quote}”，按默认起草策略执行")
+        else:
+            gate.pending({
+                "key": "template.declined_authorization_missing",
+                "source": {"tool_id": "check_stage_gate", "rule_id": "GATE-TEMPLATE-002"},
+                "target": {"kind": "process", "locator": "template_selection"},
+                "question": "是否确认不使用范本？",
+                "adopted_default": "按 declined 继续",
+                "options": ["确认不使用范本", "补充确认用户原话"],
+                "impact": ["formality"],
+                "decider": "attorney"
+            })
         return []
 
     guides = template.get("style_guides")
@@ -191,7 +220,10 @@ def check_template(state: dict[str, Any], gate: Gate, workspace: Path) -> list[P
         template.get("user_authorization"),
         "范本状态为 confirmed 时",
     )
-    gate.note("GATE-TEMPLATE-004", f"范本已由用户确认：“{quote}”")
+    if quote:
+        gate.note("GATE-TEMPLATE-004", f"范本已由用户确认：“{quote}”")
+    else:
+        gate.note("GATE-TEMPLATE-004", "范本状态为 confirmed，但未提供用户原话；按已确认范本继续")
 
     resolved: list[Path] = []
     for index, item in enumerate(guides, start=1):
@@ -303,12 +335,30 @@ def check_template_ipc_selection(
     target_codes = target.get("ipc_codes")
     search_target = search_query.get("target_ipc") or {}
     if target.get("status") != "determined" or not isinstance(target_codes, list) or not target_codes:
-        gate.block(
-            "GATE-IPC-004",
-            "目标技术方案 IPC 未处于 determined 状态或分类号为空",
-            "先判断技术方案 IPC，并显式写入 technical-features.json 后重建检索和选择报告。",
-        )
-    if search_target.get("status") != "determined" or search_target.get("ipc_codes") != target_codes:
+        recommended = []
+        if search_target.get("ipc_codes"):
+            recommended.extend(search_target.get("ipc_codes"))
+        for cand in candidate_manifest.get("candidates", candidate_manifest.get("shortlist", [])) or []:
+            if isinstance(cand, dict) and cand.get("ipc_codes"):
+                recommended.extend(cand.get("ipc_codes"))
+
+        if recommended:
+            adopted = f"采用推荐 IPC {recommended[0]} 作为 provisional"
+        else:
+            adopted = "记录无 IPC，继续"
+
+        gate.pending({
+            "key": "ipc.target_pending_determination",
+            "source": {"tool_id": "check_stage_gate", "rule_id": "GATE-IPC-004"},
+            "target": {"kind": "process", "locator": "template_selection"},
+            "question": "目标 IPC 未处于 determined 状态，需确认 IPC",
+            "adopted_default": adopted,
+            "options": ["确认 provisional IPC", "补充人工指定"],
+            "impact": ["grant_risk"],
+            "decider": "attorney"
+        })
+        gate.note("GATE-IPC-004", f"目标技术方案 IPC 未处于 determined 状态，产生待决项，{adopted}。")
+    elif search_target.get("status") != "determined" or search_target.get("ipc_codes") != target_codes:
         gate.block(
             "GATE-IPC-004",
             "范本选择报告中的目标 IPC 与当前 search-query.json 不一致",
@@ -451,11 +501,17 @@ def check_template_ipc_selection(
             )
 
     if selected.get("override_recommended") and not str(selected.get("selection_reason", "")).strip():
-        gate.block(
-            "GATE-IPC-011",
-            "人工偏离 IPC 加权推荐结果却没有选择理由",
-            "补充技术相关性、IPC接近程度或文书质量方面的明确理由。",
-        )
+        gate.pending({
+            "key": "template.override_reason_pending",
+            "source": {"tool_id": "check_stage_gate", "rule_id": "GATE-IPC-011"},
+            "target": {"kind": "process", "locator": "template_selection"},
+            "question": "人工偏离 IPC 推荐结果，是否补充理由？",
+            "adopted_default": "沿用人工选定继续",
+            "options": ["沿用人工选定", "补充选择理由"],
+            "impact": ["grant_risk"],
+            "decider": "attorney"
+        })
+        gate.note("GATE-IPC-011", "人工偏离 IPC 加权推荐结果却没有选择理由，产生待决项，沿用人工选定继续。")
 
     guide_patents: set[str] = set()
     for path in guides:
@@ -633,7 +689,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"错误：{exc}", file=sys.stderr)
         return EXIT_INPUT_ERROR
 
-    decision = "BLOCKED" if gate.blocks else "CLEARED"
+    decision = "BLOCKED" if gate.blocks else ("CLEARED_WITH_PENDING" if gate.pending_decisions else "CLEARED")
     payload = {
         "schema_id": REPORT_SCHEMA_ID,
         "legal_effect": "ADVISORY_ONLY",
@@ -645,6 +701,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "blocks": gate.blocks,
         "notes": gate.notes,
+        "pending_decisions": gate.pending_decisions,
     }
 
     output_path = Path(args.output)
@@ -653,7 +710,10 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
-    print(f"[{'BLOCKED' if gate.blocks else 'OK'}] 阶段门报告：{output_path}")
+    status_str = 'BLOCKED' if gate.blocks else ('PENDING' if gate.pending_decisions else 'OK')
+    print(f"[{status_str}] 阶段门报告：{output_path}")
+    for pending in gate.pending_decisions:
+        print(f"[PENDING] {pending['key']}：{pending['question']}")
     for note in gate.notes:
         print(f"[INFO] {note['gate_id']}：{note['message']}")
     for block in gate.blocks:
@@ -663,7 +723,7 @@ def main(argv: list[str] | None = None) -> int:
     if gate.blocks:
         print("[BLOCKED] 阶段门未通过，不得开始撰写权利要求与说明书。", file=sys.stderr)
         return EXIT_BLOCKED
-    print("[OK] 阶段门通过，可进入阶段 3。")
+    print(f"[{'PENDING' if gate.pending_decisions else 'OK'}] 阶段门通过，可进入阶段 3。")
     return EXIT_OK
 
 

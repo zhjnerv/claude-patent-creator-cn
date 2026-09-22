@@ -688,3 +688,72 @@ def test_normalize_formula_legacy_block_formats():
 
     # 验证尾随 。 被去掉
     assert module.normalize_formula("$$ a + b 。 $$") == "a + b"
+
+
+def test_pending_decisions_markers(tmp_path):
+    import subprocess
+    import json
+    from zipfile import ZipFile
+
+    case_dir = tmp_path / "case"
+    source_dir = case_dir / "02-申请文件"
+    source_dir.mkdir(parents=True)
+    template_path = case_dir / "输出模版.docx"
+    _write_test_template(template_path)
+
+    (source_dir / "说明书.md").write_text("# 测试发明\n\n## 技术领域\n\n测试领域【待决-D002】\n\n## 背景技术\n\n测试背景\n\n## 发明内容\n\n内容\n\n## 附图说明\n\n图1为结构示意图。\n\n图中：1。 \n\n## 具体实施方式\n\n以下结合附图说明本发明的具体实施例。\n\n### 实施例1。\n\n结合图1所示，具体测试【待决-D003】\n", "utf-8")
+    (source_dir / "权利要求书.md").write_text("# 权利要求书\n\n1. 一种测试。\n2. 如权利要求1的测试【待决-D001】\n", "utf-8")
+    (source_dir / "说明书摘要.md").write_text("# 说明书摘要\n\n摘要正文\n\n摘要附图：图1。\n", "utf-8")
+    (source_dir / "说明书附图.md").write_text("## 图1 结构示意图\n![](fig1.png)\n", "utf-8")
+    Image.new("RGB", (100, 100)).save(source_dir / "fig1.png")
+
+    script_path = ROOT / "skills/cn-patent-application-creator/scripts/assemble_application_docx.py"
+    verify_script = ROOT / "skills/cn-patent-application-creator/scripts/verify_docx_assembly.py"
+
+    # review copy
+    out_review = case_dir / "review.docx"
+    cmd_review = [sys.executable, str(script_path), "--case-dir", str(case_dir), "--output", str(out_review), "--copy", "review"]
+    res = subprocess.run(cmd_review, capture_output=True, text=True)
+    assert res.returncode == 0
+
+    with ZipFile(out_review) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+        assert "【待决-D001】" in xml
+        assert "【待决-D002】" in xml
+        assert 'w:highlight' in xml
+        assert 'yellow' in xml
+
+    work_dirs = sorted((case_dir / "03-审查工作区").glob("docx组装-*"))
+    review_report_dir = work_dirs[-1]
+    review_report = review_report_dir / "docx-assembly-report.json"
+
+    res_verify = subprocess.run([sys.executable, str(verify_script), "--report", str(review_report)], capture_output=True)
+    assert res_verify.returncode == 0
+
+    # submission copy
+    out_sub = case_dir / "submission.docx"
+    cmd_sub = [sys.executable, str(script_path), "--case-dir", str(case_dir), "--output", str(out_sub), "--copy", "submission"]
+    res_sub = subprocess.run(cmd_sub, capture_output=True, text=True)
+    assert res_sub.returncode == 0
+
+    with ZipFile(out_sub) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+        assert "【待决-D001】" not in xml
+        assert "【待决-D002】" not in xml
+        assert "【待决-D003】" not in xml
+        assert 'w:highlight w:val="yellow"' not in xml
+
+    work_dirs = sorted((case_dir / "03-审查工作区").glob("docx组装-*"))
+    sub_report_dir = work_dirs[-1]
+    sub_report = sub_report_dir / "docx-assembly-report.json"
+
+    res_verify_sub = subprocess.run([sys.executable, str(verify_script), "--report", str(sub_report)], capture_output=True)
+    assert res_verify_sub.returncode == 0
+
+    # broken marker submission
+    (source_dir / "权利要求书.md").write_text("# 权利要求书\n\n1. 一种测试。\n2. 如权利要求1的测试【待决-D0】\n", "utf-8")
+    out_broken = case_dir / "broken.docx"
+    cmd_broken = [sys.executable, str(script_path), "--case-dir", str(case_dir), "--output", str(out_broken), "--copy", "submission"]
+    res_broken = subprocess.run(cmd_broken, capture_output=True, text=True)
+    assert res_broken.returncode != 0
+    assert "提交副本存在残缺待决标记" in res_broken.stderr

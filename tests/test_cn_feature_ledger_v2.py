@@ -192,27 +192,35 @@ def _feat(fid: str, name: str, statement: str, classification: str = "distinguis
 # 任务 1：PRIOR-002 升级为 fail 的断言
 # ---------------------------------------------------------------------------
 
-def test_prior_002_no_verdict_is_deterministic_fail(tmp_path):
-    """distinguishing 特征 prior_art_status 缺 verdict → PRIOR-002 DETERMINISTIC_FAIL。"""
+def test_prior_002_no_verdict_is_review_and_pending(tmp_path):
+    """distinguishing 特征 prior_art_status 缺 verdict → PRIOR-002 REVIEW_REQUIRED + pending。"""
     feat = _feat("F001", "无verdict特征", "无verdict特征", verdict=None)
     ledger, claims, spec, output = _make_minimal_ledger(tmp_path, [feat])
     result = run(ledger, claims, spec, output)
-    assert result.returncode == 2, result.stdout + result.stderr
-    findings = json.loads(output.read_text(encoding="utf-8"))["findings"]
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    findings = report["findings"]
     matched = [f for f in findings if f["rule_id"] == "CN-LEDGER-PRIOR-002"]
     assert matched, "应有 CN-LEDGER-PRIOR-002 finding"
-    assert matched[0]["status"] == "DETERMINISTIC_FAIL"
+    assert matched[0]["status"] == "REVIEW_REQUIRED"
+
+    pending = report.get("pending_decisions", [])
+    assert any(p["key"] == "ledger.prior_art_verdict_missing" for p in pending)
 
 
-def test_prior_002_not_searched_is_deterministic_fail(tmp_path):
-    """verdict=not_searched → PRIOR-002 DETERMINISTIC_FAIL。"""
+def test_prior_002_not_searched_is_review_and_pending(tmp_path):
+    """verdict=not_searched → PRIOR-002 REVIEW_REQUIRED + pending。"""
     feat = _feat("F001", "未检索特征", "未检索特征", verdict="not_searched")
     ledger, claims, spec, output = _make_minimal_ledger(tmp_path, [feat])
     result = run(ledger, claims, spec, output)
-    assert result.returncode == 2, result.stdout + result.stderr
-    findings = json.loads(output.read_text(encoding="utf-8"))["findings"]
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    findings = report["findings"]
     codes = {f["rule_id"]: f["status"] for f in findings}
-    assert codes.get("CN-LEDGER-PRIOR-002") == "DETERMINISTIC_FAIL"
+    assert codes.get("CN-LEDGER-PRIOR-002") == "REVIEW_REQUIRED"
+
+    pending = report.get("pending_decisions", [])
+    assert any(p["key"] == "ledger.prior_art_verdict_missing" for p in pending)
 
 
 # ---------------------------------------------------------------------------

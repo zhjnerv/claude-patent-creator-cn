@@ -8,7 +8,7 @@
 | 说明书审查 | `cn-patent-specification-reviewer` | 说明书、权利要求特征 | 支持矩阵和专项报告 | 检索范本、DOCX |
 | 形式审查 | `cn-patent-formalities-reviewer` | manifest 和申请文件 | 形式专项报告 | 创造性检索、附图布局 |
 | 综合审查 | `cn-patent-reviewer` | 三类申请文件和 manifest | review bundle、验证报告 | 范本风格、DOCX |
-| 起草完整性门 | `cn-patent-application-creator` 的台账与架构脚本 | feature ledger v2、权利要求、说明书 | 数据流/异常闭合报告、claim architecture v1及验证报告 | DOCX、视觉审查 |
+| 起草完整性门 | `cn-patent-application-creator` 的台账与架构脚本 | feature ledger v2、权利要求、说明书 | 数据流/异常闭合报告、inventive step map v1及验证报告、claim architecture v1及验证报告 | DOCX、视觉审查 |
 | 附图 | `cn-patent-diagram-generator` | drawing brief v4、说明书、台账、claim architecture v1；可选原始母版与用户修改稿 | style brief v1、安全重建报告（同图修改时）、`.drawio`、PNG、visual review v2、验证报告 | 法源全文、DOCX |
 | Word 交付 | `cn-patent-application-creator` 的 DOCX 阶段 | 已过门四文书、模板 | DOCX、组装报告、新鲜度验证 | 检索、审查指南全文 |
 

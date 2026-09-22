@@ -20,7 +20,7 @@
 - `.drawio` 不是未压缩 `mxfile/mxGraphModel`；
 <!-- skill-lint:constraint PATENT-DRAWING-STYLE-REFERENCE -->
 - 使用了用户范例，却没有保存修改前母版、原始范例及其SHA-256；
-- 样式合同未批准、来源哈希陈旧，或未确认范例中的结构异常；
+- 样式合同来源哈希陈旧；
 - 批量套用范例时改变了drawing brief的元素ID、标签、关系ID、source/target、步骤、判断或循环；
 - 把范例中的绝对端点、断连、无来源辅助边或技术文字改动作为样式传播；
 <!-- skill-lint:constraint PATENT-DRAWING-TECH-COVERAGE -->
@@ -43,7 +43,7 @@
 - Draw.io 官方 CLI 导出报告缺失，或报告源 SHA 与当前 `.drawio` 不一致；
 - 最终 PNG 哈希与导出报告不一致；
 <!-- skill-lint:constraint PATENT-DRAWING-VISUAL-BINDING -->
-- 视觉复核缺失、未批准，或绑定旧绘图合同、旧导出报告、旧 PNG；
+- 视觉复核缺失，或绑定旧绘图合同、旧导出报告、旧 PNG；
 - 未记录 100% 比例、缩小比例和逐项具体观察；
 <!-- skill-lint:constraint PATENT-DRAWING-NODE-SHAPE -->
 - 普通模块、动作、步骤、判断、事实、状态或一般结果使用圆柱型节点；

@@ -193,14 +193,17 @@ def test_architecture_contract_passes_and_requires_complexity_review(tmp_path):
     assert any(item["code"] == "ARCH-CARRIER-COMPLEXITY" for item in report["review_required"])
 
 
-def test_pending_conciseness_review_blocks(tmp_path):
+def test_pending_conciseness_review_does_not_block(tmp_path):
     contract, claims, specification, output = fixture(tmp_path)
     payload = json.loads(contract.read_text(encoding="utf-8"))
     payload["independent_claims"][1]["conciseness_review"]["status"] = "pending"
     write_json(contract, payload)
     result = run(contract, claims, specification, output)
-    assert result.returncode == 2
-    assert "ARCH-CARRIER-REVIEW" in codes(output)
+    assert result.returncode == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["status"] == "PASS"
+    keys = [item["key"] for item in report.get("pending_decisions", [])]
+    assert "architecture.conciseness_review_pending" in keys
 
 
 def test_observed_formula_count_cannot_be_understated(tmp_path):
@@ -355,10 +358,14 @@ def test_core_protection_point_feature_must_be_in_claim_2(tmp_path):
     assert "ARCH-CORE-FEATURE" in codes(output)
 
 
-def test_core_protection_point_review_must_be_approved(tmp_path):
+def test_core_protection_point_review_does_not_block_when_pending(tmp_path):
     contract, claims, specification, output = fixture(tmp_path)
     payload = json.loads(contract.read_text(encoding="utf-8"))
     payload["core_protection_point"]["review"]["status"] = "pending"
     write_json(contract, payload)
-    assert run(contract, claims, specification, output).returncode == 2
-    assert "ARCH-CORE-REVIEW" in codes(output)
+    result = run(contract, claims, specification, output)
+    assert result.returncode == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["status"] == "PASS"
+    keys = [item["key"] for item in report.get("pending_decisions", [])]
+    assert "architecture.core_point_review_pending" in keys

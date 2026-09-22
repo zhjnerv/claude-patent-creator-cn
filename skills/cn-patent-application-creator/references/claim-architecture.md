@@ -34,7 +34,7 @@ python scripts/validate_claim_architecture.py \
 - 公式、符号定义、实施细节、控制时序分别放在独权、从权或说明书的决定及理由；
 - 专利代理师或独立审查者的简要性复核状态。
 
-公式块不少于3、符号定义不少于5或跨越不少于3个执行阶段时，验证器输出 `ARCH-CARRIER-COMPLEXITY`，要求人工复核。该 finding 不以字符数直接认定法律缺陷；但复核状态不是 `approved`、公式/符号没有逐项载体分配、或者合同低报可从文本确认的公式数量时，必须阻断。
+公式块不少于3、符号定义不少于5或跨越不少于3个执行阶段时，验证器输出 `ARCH-CARRIER-COMPLEXITY`，要求人工复核。该 finding 不以字符数直接认定法律缺陷；公式/符号没有逐项载体分配、或者合同低报可从文本确认的公式数量时，必须阻断。复核未批准不阻断，写入待决清单。
 
 ## 父从权继承拓扑
 
@@ -82,7 +82,7 @@ source_node_id
 - `ARCH-CORE-SHAPE`：权利要求 2 号与父权要求 1 号、非空且无重复的特征 ID 数组、说明文本；
 - `ARCH-CORE-CLAIM`：权利要求 2 必须存在、仅引用权利要求 1、拓扑一致；
 - `ARCH-CORE-FEATURE`：每项特征必须在台账中找到、分类为 distinguishing、claim_sites 含权利要求 2；
-- `ARCH-CORE-REVIEW`：复核状态必须为 pending、approved 或 revise；仅 approved 才通过。
+- `ARCH-CORE-REVIEW`：复核状态必须为 pending、approved 或 revise；复核未批准不阻断，写入待决清单。
 
 ## 与绘图合同的交接
 

@@ -435,14 +435,33 @@ def validate_style_brief(path: Path, case_dir: Path, require_approved: bool = Tr
     if (hard_anomaly_codes or has_technical_diff) and sanitization.get("required") is not True:
         errors.append({"code": "STYLE-BRIEF-SANITIZATION", "message": "存在技术差异或硬异常时 sanitization_plan.required 必须为 true"})
 
+    pending_decisions = []
     approval = value.get("approval") or {}
     if require_approved and (approval.get("status") != "approved" or approval.get("approved_visual_only") is not True):
-        errors.append({"code": "STYLE-BRIEF-APPROVAL", "message": "样式合同尚未批准为仅视觉复用"})
+        pending_decisions.append({
+            "key": "drawing.style_brief_approval_pending",
+            "source": {"tool_id": "analyze_drawing_reference", "rule_id": "STYLE-BRIEF-APPROVAL"},
+            "target": {"kind": "process", "locator": str(path.resolve())},
+            "question": "样式范例视觉复用尚未批准",
+            "adopted_default": "仅复用范例的紧凑布局指标与视觉规则；未确认的结构异常一律不采用，按原始母版重建",
+            "options": ["批准范例复用", "拒绝复用"],
+            "impact": ["delivery"],
+            "decider": "attorney"
+        })
     anomaly_codes = {item.get("code") for item in value.get("structural_anomalies") or [] if isinstance(item, dict)}
     acknowledged = set(approval.get("acknowledged_anomaly_codes") or [])
     if require_approved and not anomaly_codes <= acknowledged:
-        errors.append({"code": "STYLE-BRIEF-ANOMALY", "message": f"未确认范例异常：{sorted(anomaly_codes - acknowledged)}"})
-    return {"schema_id": "cn-patent-drawing-style-brief-validation/v1", "style_brief": str(path.resolve()), "style_brief_sha256": sha256(path), "status": "PASS" if not errors else "FAIL", "errors": errors, "analysis_status": value.get("analysis_status"), "approval": approval}
+        pending_decisions.append({
+            "key": "drawing.style_brief_approval_pending",
+            "source": {"tool_id": "analyze_drawing_reference", "rule_id": "STYLE-BRIEF-ANOMALY"},
+            "target": {"kind": "process", "locator": str(path.resolve())},
+            "question": f"存在未确认的范例结构异常：{sorted(anomaly_codes - acknowledged)}",
+            "adopted_default": "仅复用范例的紧凑布局指标与视觉规则；未确认的结构异常一律不采用，按原始母版重建",
+            "options": ["确认异常接受", "不接受异常"],
+            "impact": ["delivery"],
+            "decider": "attorney"
+        })
+    return {"schema_id": "cn-patent-drawing-style-brief-validation/v1", "style_brief": str(path.resolve()), "style_brief_sha256": sha256(path), "status": "PASS" if not errors else "FAIL", "errors": errors, "pending_decisions": pending_decisions, "analysis_status": value.get("analysis_status"), "approval": approval}
 
 
 def main(argv: list[str] | None = None) -> int:

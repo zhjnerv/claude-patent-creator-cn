@@ -65,6 +65,7 @@ SPEC_PARAGRAPH_NUMBER_RE = re.compile(r"^\[\d{4}\]\s*")
 CLAIM_STEP_RE = re.compile(r"(?=S\d{3}\s*[：:])")
 FIGURE_DESCRIPTION_RE = re.compile(r"^图\s*(\d+)\s*(?:为|是).+图[。.]$")
 FIGURE_CITATION_RE = re.compile(r"(?:如|参见|结合)图\s*(\d+)\s*(?:所示|可见)?|图\s*(\d+)\s*(?:所示|中)")
+PENDING_MARK_RE = re.compile(r"【待决-D(\d{3})】")
 INLINE_EQUATION_RE = re.compile(
     r"(?<![A-Za-z0-9_])"
     r"[A-Za-z][A-Za-z0-9_]*(?:_(?:[A-Za-z0-9]+|\([A-Za-z0-9+\-]+\)))?"
@@ -833,6 +834,29 @@ def end_section(paragraph, sectpr) -> None:
     ppr.append(deepcopy(sectpr))
 
 
+def apply_highlight(run) -> None:
+    rPr = run._r.get_or_add_rPr()
+    hl = OxmlElement("w:highlight")
+    hl.set(qn("w:val"), "yellow")
+    rPr.append(hl)
+
+
+def process_pending_marks(text: str, copy_kind: str, location: str, pending_marks: list) -> tuple[str, bool]:
+    marks = PENDING_MARK_RE.findall(text)
+    if not marks:
+        if copy_kind == "submission" and "【待决" in text:
+            raise ValueError("提交副本存在残缺待决标记")
+        return text, False
+    for mark in marks:
+        pending_marks.append({"id": f"D{mark}", "location": location})
+    if copy_kind == "submission":
+        text = PENDING_MARK_RE.sub("", text)
+        if "【待决" in text:
+            raise ValueError("提交副本存在残缺待决标记")
+        return text, False
+    return text, True
+
+
 def add_claim(
     doc: Document,
     text: str,
@@ -840,6 +864,7 @@ def add_claim(
     claim_rpr,
     registry: MathRegistry,
     symbols: tuple[str, ...],
+    highlight: bool = False,
 ):
     paragraph = doc.add_paragraph()
     copy_paragraph_properties(paragraph, claim_ppr)
@@ -849,15 +874,19 @@ def add_claim(
         elif value:
             run = paragraph.add_run(value)
             copy_run_properties(run, claim_rpr)
+            if highlight:
+                apply_highlight(run)
     return paragraph
 
 
-def add_plain_run(paragraph, text: str) -> None:
+def add_plain_run(paragraph, text: str, highlight: bool = False) -> None:
     if not text:
         return
     run = paragraph.add_run(text)
     set_east_asia_font(run, "宋体")
     run.font.size = Pt(12)
+    if highlight:
+        apply_highlight(run)
 
 
 def add_spec_item(
@@ -865,32 +894,37 @@ def add_spec_item(
     item: SpecItem,
     registry: MathRegistry,
     symbols: tuple[str, ...],
+    processed_text: str = None,
+    highlight: bool = False,
 ):
+    text = processed_text if processed_text is not None else item.text
     if item.kind == "title":
         paragraph = doc.add_paragraph(style="Title")
-        paragraph.add_run(item.text)
+        run = paragraph.add_run(text)
+        if highlight: apply_highlight(run)
         return paragraph
     if item.kind == "heading":
         paragraph = doc.add_paragraph(style="Heading 1")
-        run = paragraph.add_run(item.text)
+        run = paragraph.add_run(text)
         run.style = doc.styles[REQUIRED_CHARACTER_STYLE]
+        if highlight: apply_highlight(run)
         return paragraph
     if item.kind == "formula":
         paragraph = doc.add_paragraph(style="正文2")
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         paragraph.paragraph_format.first_line_indent = Pt(0)
-        append_omath(paragraph, registry, item.text)
+        append_omath(paragraph, registry, text)
         punctuation = paragraph.add_run("。")
         set_east_asia_font(punctuation, "宋体")
         punctuation.font.size = Pt(12)
         return paragraph
 
     paragraph = doc.add_paragraph(style="正文2")
-    for is_math, value in tokenize_inline_math(item.text, symbols):
+    for is_math, value in tokenize_inline_math(text, symbols):
         if is_math:
             append_omath(paragraph, registry, value)
         else:
-            add_plain_run(paragraph, value)
+            add_plain_run(paragraph, value, highlight)
     return paragraph
 
 
@@ -1088,6 +1122,7 @@ def build_document(
     template_path: Path,
     output_path: Path,
     render_dir: Path | None,
+    copy_kind: str = "review",
 ) -> dict:
     claims_path = source_dir / "权利要求书.md"
     spec_path = source_dir / "说明书.md"
@@ -1108,6 +1143,7 @@ def build_document(
     symbols = collect_math_symbols(specification)
     registry = MathRegistry()
 
+    pending_marks = []
     doc = Document(template_path)
     section_props = validate_template(doc)
     heading_style_id = doc.styles["Heading 1"].style_id
@@ -1141,33 +1177,43 @@ def build_document(
         # numId=0 是取消编号；不为取消编号的段落伪造编号实例。
         available_levels = {0}
     step_ppr = claim_step_properties(claim_ppr, available_levels)
+    claim_idx = 1
     for claim in claims:
         parts = split_claim_paragraphs(claim)
+        loc = f"权利要求{claim_idx}"
+        claim_idx += 1
         for index, part in enumerate(parts):
+            processed_text, highlight = process_pending_marks(part, copy_kind, loc, pending_marks)
             last = add_claim(
                 doc,
-                part,
+                processed_text,
                 claim_ppr if index == 0 else step_ppr,
                 claim_rpr,
                 registry,
                 symbols,
+                highlight,
             )
     if last is None:
         raise ValueError("权利要求为空")
     end_section(last, section_props[0])
 
     for item in specification:
-        last = add_spec_item(doc, item, registry, symbols)
+        loc = f"说明书:{item.text[:20]}"
+        processed_text, highlight = process_pending_marks(item.text, copy_kind, loc, pending_marks)
+        last = add_spec_item(doc, item, registry, symbols, processed_text, highlight)
     end_section(last, section_props[1])
 
     for index, figure in enumerate(figures):
         last = add_figure(doc, figure, page_break_before=index > 0)
     end_section(last, section_props[2])
 
+    abstract_text, highlight = process_pending_marks(abstract, copy_kind, "摘要", pending_marks)
     abstract_p = doc.add_paragraph(style="正文2")
-    abstract_run = abstract_p.add_run(abstract)
+    abstract_run = abstract_p.add_run(abstract_text)
     set_east_asia_font(abstract_run, "宋体")
     abstract_run.font.size = Pt(12)
+    if highlight:
+        apply_highlight(abstract_run)
     end_section(abstract_p, section_props[3])
     add_abstract_figure(doc, by_number[abstract_figure_number])
 
@@ -1265,6 +1311,8 @@ def build_document(
         },
         "headers": headers,
         "abstract_figure": abstract_figure_number,
+        "copy_kind": copy_kind,
+        "pending_marks": pending_marks,
         "render": {
             "requested": render_dir is not None,
             "engine": (
@@ -1300,6 +1348,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=argparse.SUPPRESS,  # 向后兼容；默认已不渲染
     )
+    parser.add_argument(
+        "--copy",
+        choices=["review", "submission"],
+        default="review",
+        help="生成副本类型",
+    )
     return parser.parse_args()
 
 
@@ -1320,7 +1374,7 @@ def main() -> int:
         raise ValueError("--visual-review 与兼容参数 --no-render 不能同时使用")
     render_dir = work_dir / "render" if args.visual_review else None
 
-    report = build_document(source_dir, template, output, render_dir)
+    report = build_document(source_dir, template, output, render_dir, args.copy)
     work_dir.mkdir(parents=True, exist_ok=True)
     report_path = work_dir / "docx-assembly-report.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

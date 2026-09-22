@@ -290,6 +290,7 @@ class Report:
 
     def __init__(self) -> None:
         self.findings: list[dict[str, Any]] = []
+        self.pending_decisions: list[dict[str, Any]] = []
 
     def add(
         self,
@@ -309,6 +310,9 @@ class Report:
                 "remedy": remedy,
             }
         )
+
+    def pending(self, decision: dict[str, Any]) -> None:
+        self.pending_decisions.append(decision)
 
     def fail(self, rule_id: str, target: str, problem: str, remedy: str) -> None:
         self.add(rule_id, target, "DETERMINISTIC_FAIL", problem, remedy)
@@ -383,30 +387,60 @@ def check_classification(ledger: dict[str, Any], report: Report) -> None:
                     f"区别特征 {fid} 未记载技术效果",
                     "补写该区别特征实际带来的技术效果；三步法第二步据此重述实际解决的技术问题",
                 )
+                report.pending({
+                    "key": "ledger.technical_effect_missing",
+                    "source": {"tool_id": "build_feature_ledger", "rule_id": "CN-LEDGER-EFFECT-001"},
+                    "target": {"kind": "ledger", "locator": fid},
+                    "question": f"区别特征 {fid} 缺少技术效果，是否需补充？",
+                    "adopted_default": "留空继续",
+                    "options": ["补充技术效果", "确认留空"],
+                    "impact": ["grant_risk"],
+                    "decider": "inventor"
+                })
             verdict = (feature.get("prior_art_status") or {}).get("verdict")
             if verdict == "disclosed":
                 report.fail(
                     "CN-LEDGER-PRIOR-001",
                     fid,
                     f"特征 {fid} 被判定为已被现有技术公开，却仍作为区别特征",
-                    "改判为 preamble，或下沉为从属权利要求限定后重新分类",
+                    "将该特征改判为 preamble，或将其限定到一个未被公开的子区间/更具体的实现",
                 )
             if verdict in (None, "not_searched"):
-                report.fail(
+                report.review(
                     "CN-LEDGER-PRIOR-002",
                     fid,
-                    f"区别特征 {fid} 没有检索判定，不得作为区别特征进入权利要求",
-                    "补充 prior_art_status.verdict；未检索的区别特征不能支撑创造性论证",
+                    f"区别特征 {fid} 没有检索判定，可能无法支撑创造性论证",
+                    "补充 prior_art_status.verdict；目前暂视为未检索继续对账",
                 )
+                report.pending({
+                    "key": "ledger.prior_art_verdict_missing",
+                    "source": {"tool_id": "build_feature_ledger", "rule_id": "CN-LEDGER-PRIOR-002"},
+                    "target": {"kind": "ledger", "locator": fid},
+                    "question": f"区别特征 {fid} 没有检索判定，是否补充？",
+                    "adopted_default": "按 distinguishing 参与对账，prior_art_status.effective_verdict='not_searched'",
+                    "options": ["补充判定", "视为未检索保留"],
+                    "impact": ["grant_risk"],
+                    "decider": "attorney"
+                })
             statement = str(feature.get("statement", "")).strip()
             if not _has_qualifier(statement):
                 report.review(
                     "CN-LEDGER-ABSTRACT-001",
                     fid,
                     f"区别特征 {fid} 的表述只是部件/步骤/组分/机制的名称，缺少条件、位置关系、参数区间、绑定或时序限定",
-                    "改写为'条件 + 动作''绑定集合'或'位置关系 + 作用'形式，或改判 preamble；"
+                    "改写为“条件 + 动作”“绑定集合”或“位置关系 + 作用”形式，或改判 preamble；"
                     "参见 references/distinguishing-feature-patterns.md",
                 )
+                report.pending({
+                    "key": "ledger.statement_too_abstract",
+                    "source": {"tool_id": "build_feature_ledger", "rule_id": "CN-LEDGER-ABSTRACT-001"},
+                    "target": {"kind": "ledger", "locator": fid},
+                    "question": f"区别特征 {fid} 的表述可能过于宽泛/抽象，是否修改？",
+                    "adopted_default": "原样保留继续对账",
+                    "options": ["修改表述", "确认保留"],
+                    "impact": ["grant_risk"],
+                    "decider": "both"
+                })
     if distinguishing == 0:
         report.fail(
             "CN-LEDGER-CLASS-003",
@@ -1052,6 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
             "只表示登记、数据流和引用关系在当前输入范围内可对账，不代表清楚、支持、必要技术特征或创造性成立。"
         ),
         "findings": report.findings,
+        "pending_decisions": report.pending_decisions,
     }
 
     try:

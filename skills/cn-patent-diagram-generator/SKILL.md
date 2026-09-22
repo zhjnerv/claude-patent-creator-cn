@@ -67,7 +67,7 @@ python scripts/sanitize_drawing_reference.py \
 
 安全重建以原始母版为拓扑权威，只复制匹配节点的几何和白名单样式；关系 ID、source/target 和原生 edge value 均从原始母版恢复。参考图中的独立箭头文字、重复标签、额外关系、自连接和绝对端点不会进入输出。对其他附图批量复用时，只消费 style brief 的紧凑布局指标和视觉规则，不复制参考图节点或边。
 
-若 drawing brief 声明 `style_brief_path`，同时必须绑定 `style_brief_sha256`，且样式合同必须批准、保持新鲜并包含完整净化计划。
+若 drawing brief 声明 `style_brief_path`，同时必须绑定 `style_brief_sha256`，且样式合同必须保持新鲜并包含完整净化计划。未批准或异常未确认时，不阻断制图，将采用保守默认策略重建并写入待决清单。
 
 Schema：`references/drawing-style-brief-schema.json`；安全重建报告：`references/drawing-reference-sanitization-schema.json`；示例：`assets/drawing-style-brief.example.json`。
 
