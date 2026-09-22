@@ -34,6 +34,9 @@ MAX_REFERENCE_EDGES = 100_000
 MAX_ANCESTOR_DEPTH = 2_048
 MAX_SINGLE_CLAIM_BYTES = 256 * 1024
 MAX_CLAIM_WORD_COUNT = 600
+CLAIM_WORD_COUNT_LIMITS: dict[int, int] = {1: 400, 2: 500}
+CLAIM_WORD_COUNT_RULES: dict[int, str] = {1: "CN-CLAIM-LENGTH-002", 2: "CN-CLAIM-LENGTH-003"}
+CORE_DEPENDENT_RULE_ID = "CN-CLAIM-CORE-001"
 MAX_FINDINGS = 5_000
 MAX_GAPS = 5_000
 MAX_CHECKS = 10_000
@@ -450,23 +453,52 @@ def analyze_claims(text: str, source_name: str = "<memory>", source_bytes: bytes
         check("claim-numbering", "CN-CLAIM-NUM-001", "claims-document", "COMPLETED", number_findings, [])
 
         length_findings: list[str] = []
+        length_002_findings: list[str] = []
+        length_003_findings: list[str] = []
         for claim in claims:
             budget.check_deadline()
             word_count = word_compatible_claim_count(claim.text)
-            if word_count > MAX_CLAIM_WORD_COUNT:
+            limit = CLAIM_WORD_COUNT_LIMITS.get(claim.number, MAX_CLAIM_WORD_COUNT)
+            rule_id = CLAIM_WORD_COUNT_RULES.get(claim.number, "CN-CLAIM-LENGTH-001")
+            if word_count > limit:
+                if rule_id == "CN-CLAIM-LENGTH-002":
+                    problem = f"权利要求1按 Word 口径计 {word_count} 字，超过 400 字上限；权利要求1应只保留解决技术问题的必要技术特征，避免明显堆砌或非必要限缩保护范围。"
+                elif rule_id == "CN-CLAIM-LENGTH-003":
+                    problem = f"权利要求2按 Word 口径计 {word_count} 字，超过 500 字上限；权利要求2承载最核心的保护点，应精简表述并把次要限定下沉到后续从属项。"
+                else:
+                    problem = f"该项权利要求按 Word 口径计 {word_count} 字，超过 {limit} 字上限。"
                 item = new_finding(
-                    "claim-word-count",
-                    "CN-CLAIM-LENGTH-001",
+                    f"claim-{claim.number}-word-count" if claim.number in (1, 2) else "claim-word-count",
+                    rule_id,
                     f"claim-{claim.number}",
                     f"权利要求{claim.number}",
                     "DETERMINISTIC_FAIL",
-                    f"Word 口径字数={word_count}；上限={MAX_CLAIM_WORD_COUNT}",
-                    f"该项权利要求按 Word 口径计 {word_count} 字，超过 600 字上限。",
+                    f"Word 口径字数={word_count}；上限={limit}",
+                    problem,
                     "在不遗漏必要技术特征且不改变保护主题的前提下拆分或精简；完整公式和特殊公式变量应使用明确公式标记。",
                 )
                 add_limited(findings, item, MAX_FINDINGS, "finding 数量")
-                length_findings.append(item["finding_id"])
+                if rule_id == "CN-CLAIM-LENGTH-002":
+                    length_002_findings.append(item["finding_id"])
+                elif rule_id == "CN-CLAIM-LENGTH-003":
+                    length_003_findings.append(item["finding_id"])
+                else:
+                    length_findings.append(item["finding_id"])
         check("claim-word-count", "CN-CLAIM-LENGTH-001", "claims-document", "COMPLETED", length_findings, [])
+
+        # 权利要求1字数检查
+        claim_1 = next((c for c in claims if c.number == 1), None)
+        if claim_1:
+            check("claim-1-word-count", "CN-CLAIM-LENGTH-002", "claim-1", "COMPLETED", length_002_findings, [])
+        else:
+            check("claim-1-word-count", "CN-CLAIM-LENGTH-002", "claim-1", "SKIPPED", [], [])
+
+        # 权利要求2字数检查
+        claim_2 = next((c for c in claims if c.number == 2), None)
+        if claim_2:
+            check("claim-2-word-count", "CN-CLAIM-LENGTH-003", "claim-2", "COMPLETED", length_003_findings, [])
+        else:
+            check("claim-2-word-count", "CN-CLAIM-LENGTH-003", "claim-2", "SKIPPED", [], [])
 
         parse_findings: list[str] = []
         parse_gaps: list[str] = []
@@ -619,6 +651,106 @@ def analyze_claims(text: str, source_name: str = "<memory>", source_bytes: bytes
             multi_findings,
             [],
         )
+
+        # CN-CLAIM-CORE-001：权利要求2必须直接引用权利要求1
+        core_findings: list[str] = []
+        core_gaps: list[str] = []
+        claim_2 = next((c for c in claims if c.number == 2), None)
+        if claim_2:
+            if claim_2.kind == "independent_candidate":
+                item = new_finding(
+                    "claim-2-core-dependency",
+                    CORE_DEPENDENT_RULE_ID,
+                    "claim-2",
+                    "权利要求2",
+                    "DETERMINISTIC_FAIL",
+                    claim_2.text[:200],
+                    "权利要求2未引用权利要求1，不是承载核心保护点的直接从属项。",
+                    "将最核心的区别特征写入直接从属于权利要求1的权利要求2；其他独立权利要求后移。",
+                )
+                add_limited(findings, item, MAX_FINDINGS, "finding 数量")
+                core_findings.append(item["finding_id"])
+            elif claim_2.kind == "dependent_candidate" and claim_2.references == (1,):
+                # 权利要求2直接引用权利要求1，无issue
+                pass
+            elif claim_2.kind == "dependent_candidate":
+                # 引用不是(1,)
+                item = new_finding(
+                    "claim-2-core-dependency",
+                    CORE_DEPENDENT_RULE_ID,
+                    "claim-2",
+                    "权利要求2",
+                    "DETERMINISTIC_FAIL",
+                    f"引用：{claim_2.references}",
+                    f"权利要求2应仅直接引用权利要求1，实际引用 {claim_2.references}。",
+                    "将最核心的区别特征写入直接且仅引用权利要求1的权利要求2；引用其他权利要求的从属项后移。",
+                )
+                add_limited(findings, item, MAX_FINDINGS, "finding 数量")
+                core_findings.append(item["finding_id"])
+            elif claim_2.kind == "dependent_unresolved":
+                item = new_finding(
+                    "claim-2-core-dependency",
+                    CORE_DEPENDENT_RULE_ID,
+                    "claim-2",
+                    "权利要求2",
+                    "REVIEW_REQUIRED",
+                    claim_2.text[:200],
+                    "权利要求2的引用子句无法完整解析，无法确认是否直接引用权利要求1。",
+                    "人工确认权利要求2的引用关系；必须直接引用权利要求1作为唯一引用基础。",
+                )
+                add_limited(findings, item, MAX_FINDINGS, "finding 数量")
+                core_findings.append(item["finding_id"])
+                missing = new_gap(
+                    "claim-2-core-dependency",
+                    CORE_DEPENDENT_RULE_ID,
+                    "claim-2",
+                    "PARSE_UNRESOLVED",
+                    claim_2.reference_parse_status,
+                    claim_2.text[:200],
+                )
+                add_limited(gaps, missing, MAX_GAPS, "gap 数量")
+                core_gaps.append(missing["gap_id"])
+            check(
+                "claim-2-core-dependency",
+                CORE_DEPENDENT_RULE_ID,
+                "claim-2",
+                "PARTIAL" if core_gaps else "COMPLETED",
+                core_findings,
+                core_gaps,
+            )
+        else:
+            # 权利要求2不存在
+            item = new_finding(
+                "claim-2-core-dependency",
+                CORE_DEPENDENT_RULE_ID,
+                "claims-document",
+                "权利要求结构",
+                "REVIEW_REQUIRED",
+                f"仅有 {len(claims)} 项权利要求",
+                "未识别到权利要求2，无法确认核心保护点落位。",
+                "至少添加权利要求2作为直接从属于权利要求1的从属项，承载最核心的区别特征。",
+            )
+            add_limited(findings, item, MAX_FINDINGS, "finding 数量")
+            core_findings.append(item["finding_id"])
+            missing = new_gap(
+                "claim-2-core-dependency",
+                CORE_DEPENDENT_RULE_ID,
+                "claims-document",
+                "CONDITIONAL_APPLICABILITY_UNRESOLVED",
+                "权利要求2不存在",
+                f"仅有 {len(claims)} 项权利要求",
+                blocks=False,
+            )
+            add_limited(gaps, missing, MAX_GAPS, "gap 数量")
+            core_gaps.append(missing["gap_id"])
+            check(
+                "claim-2-core-dependency",
+                CORE_DEPENDENT_RULE_ID,
+                "claims-document",
+                "NOT_VERIFIED",
+                core_findings,
+                core_gaps,
+            )
 
         draft_findings: list[str] = []
         for claim in claims:

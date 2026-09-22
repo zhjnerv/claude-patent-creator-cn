@@ -213,6 +213,9 @@ class ContractV2Tests(unittest.TestCase):
         mapping = self.contract["rule_dimension_map"]
         self.assertEqual(mapping["CN-CLAIM-MULTI-001"], "form_claim_presentation_and_reference_form")
         self.assertEqual(mapping["CN-CLAIM-LENGTH-001"], "form_claim_presentation_and_reference_form")
+        self.assertEqual(mapping["CN-CLAIM-LENGTH-002"], "form_claim_presentation_and_reference_form")
+        self.assertEqual(mapping["CN-CLAIM-LENGTH-003"], "form_claim_presentation_and_reference_form")
+        self.assertEqual(mapping["CN-CLAIM-CORE-001"], "form_claim_presentation_and_reference_form")
         self.assertEqual(mapping["CN-CLAIM-REF-001"], "form_claim_presentation_and_reference_form")
         self.assertEqual(mapping["CN-CLAIM-FUNCTION-001"], "claim_support")
         self.assertEqual(mapping["CN-CLAIM-DEPENDENT-001"], "claim_clarity")

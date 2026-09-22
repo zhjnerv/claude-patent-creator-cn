@@ -72,17 +72,18 @@ class ClaimsCheckerV2Tests(unittest.TestCase):
         self.assertEqual(checker.word_compatible_claim_count("∑"), 1)
 
     def test_single_claim_word_count_limit_accepts_600_and_rejects_601(self):
-        accepted = checker.analyze_claims("1. " + "甲" * 599 + "$Q_{CT}=C(P,a_i)$")
+        # 用权利要求3做600/601边界测试
+        accepted = checker.analyze_claims("1. 一种装置。\n2. 根据权利要求1所述的装置。\n3. " + "甲" * 599 + "$Q_{CT}=C(P,a_i)$")
         self.assertFalse(any(item["rule_id"] == "CN-CLAIM-LENGTH-001" for item in accepted["findings"]))
         accepted_check = next(item for item in accepted["checks_performed"] if item["check_id"] == "claim-word-count")
         self.assertEqual(accepted_check["status"], "COMPLETED")
         self.assertEqual(accepted_check["finding_ids"], [])
 
-        rejected = checker.analyze_claims("1. " + "甲" * 600 + "$Q_{CT}=C(P,a_i)$")
+        rejected = checker.analyze_claims("1. 一种装置。\n2. 根据权利要求1所述的装置。\n3. " + "甲" * 600 + "$Q_{CT}=C(P,a_i)$")
         finding = next(item for item in rejected["findings"] if item["rule_id"] == "CN-CLAIM-LENGTH-001")
         self.assertEqual(finding["status"], "DETERMINISTIC_FAIL")
         self.assertIn("Word 口径字数=601", finding["evidence"][0]["excerpt"])
-        self.assertEqual(finding["target_id"], "claim-1")
+        self.assertEqual(finding["target_id"], "claim-3")
 
     def test_claim_number_is_excluded_from_word_count(self):
         report = checker.analyze_claims("999999. " + "甲" * 600)
@@ -185,12 +186,13 @@ class ClaimsCheckerV2Tests(unittest.TestCase):
             self.assertEqual(checker.main(["--input", str(input_path), "--output", str(output_path)]), 4)
             self.assertFalse(output_path.exists())
 
-    def test_cli_returns_two_when_single_claim_exceeds_600_words(self):
+    def test_cli_returns_two_when_claim_exceeds_limit(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             input_path = root / "claims.txt"
             output_path = root / "report.json"
-            input_path.write_text("1. " + "甲" * 601, encoding="utf-8")
+            # 权利要求3超过600
+            input_path.write_text("1. 一种装置。\n2. 根据权利要求1所述的装置。\n3. " + "甲" * 601, encoding="utf-8")
             self.assertEqual(checker.main(["--input", str(input_path), "--output", str(output_path)]), 2)
             report = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertTrue(any(item["rule_id"] == "CN-CLAIM-LENGTH-001" for item in report["findings"]))
@@ -222,6 +224,90 @@ class ClaimsCheckerV2Tests(unittest.TestCase):
                     checker.write_result(report, output_path)
             self.assertEqual(output_path.read_text(encoding="utf-8"), "old")
             self.assertEqual(list(root.glob(".*.tmp")), [])
+
+    def test_claim_1_word_count_limit_accepts_400_and_rejects_401(self):
+        # 权利要求1: 400字通过，401字失败 LENGTH-002
+        accepted = checker.analyze_claims("1. " + "甲" * 399 + "中")
+        self.assertFalse(any(item["rule_id"] == "CN-CLAIM-LENGTH-002" for item in accepted["findings"]))
+        self.assertFalse(any(item["rule_id"] == "CN-CLAIM-LENGTH-001" for item in accepted["findings"]))
+
+        rejected = checker.analyze_claims("1. " + "甲" * 400 + "中")
+        finding = next(item for item in rejected["findings"] if item["rule_id"] == "CN-CLAIM-LENGTH-002")
+        self.assertEqual(finding["status"], "DETERMINISTIC_FAIL")
+        self.assertIn("Word 口径字数=401", finding["evidence"][0]["excerpt"])
+        self.assertIn("400", finding["evidence"][0]["excerpt"])
+        self.assertNotIn("CN-CLAIM-LENGTH-001", {item["rule_id"] for item in rejected["findings"]})
+
+    def test_claim_2_word_count_limit_accepts_500_and_rejects_501(self):
+        prefix = "根据权利要求1所述的装置，其特征在于，"
+        prefix_count = checker.word_compatible_claim_count(prefix)
+        accepted = checker.analyze_claims("1. 一种装置。\n2. " + prefix + "甲" * (500 - prefix_count))
+        self.assertFalse(any(item["rule_id"] in {"CN-CLAIM-LENGTH-003", "CN-CLAIM-LENGTH-001"} for item in accepted["findings"]))
+        accepted_check = next(item for item in accepted["checks_performed"] if item["check_id"] == "claim-2-word-count")
+        self.assertEqual(accepted_check["status"], "COMPLETED")
+        self.assertEqual(accepted_check["finding_ids"], [])
+
+        rejected = checker.analyze_claims("1. 一种装置。\n2. " + prefix + "甲" * (501 - prefix_count))
+        finding = next(item for item in rejected["findings"] if item["rule_id"] == "CN-CLAIM-LENGTH-003")
+        self.assertEqual(finding["status"], "DETERMINISTIC_FAIL")
+        self.assertEqual(finding["target_id"], "claim-2")
+        self.assertIn("Word 口径字数=501", finding["evidence"][0]["excerpt"])
+        self.assertIn("上限=500", finding["evidence"][0]["excerpt"])
+        self.assertFalse(any(item["rule_id"] == "CN-CLAIM-LENGTH-001" for item in rejected["findings"]))
+
+        # 权利要求 2 远超 600 时仍只报 LENGTH-003，不重复报 LENGTH-001
+        oversized = checker.analyze_claims("1. 一种装置。\n2. " + prefix + "甲" * 650)
+        rule_ids = [item["rule_id"] for item in oversized["findings"] if item["target_id"] == "claim-2"]
+        self.assertIn("CN-CLAIM-LENGTH-003", rule_ids)
+        self.assertNotIn("CN-CLAIM-LENGTH-001", rule_ids)
+
+    def test_claim_2_must_reference_claim_1_only(self):
+        # CN-CLAIM-CORE-001：权利要求2必须直接引用权利要求1
+        # 独立的权利要求2失败
+        independent_2 = checker.analyze_claims("1. 一种装置。\n2. 一种方法。")
+        core_findings = [item for item in independent_2["findings"] if item["rule_id"] == "CN-CLAIM-CORE-001"]
+        self.assertTrue(any(item["status"] == "DETERMINISTIC_FAIL" and "未引用" in item["problem"] for item in core_findings))
+
+        # 直接引用1的权利要求2通过
+        correct_2 = checker.analyze_claims("1. 一种装置。\n2. 根据权利要求1所述的装置。")
+        core_check = next(item for item in correct_2["checks_performed"] if item["check_id"] == "claim-2-core-dependency")
+        self.assertEqual(core_check["status"], "COMPLETED")
+        self.assertEqual(core_check["finding_ids"], [])
+
+        # 引用的不是权利要求1（引用3、或引用1或3）都失败
+        for text in ("1. 一种装置。\n2. 根据权利要求3所述的装置。\n3. 根据权利要求1所述的装置。",
+                     "1. 一种装置。\n2. 根据权利要求1或3所述的装置。\n3. 根据权利要求1所述的装置。"):
+            report = checker.analyze_claims(text)
+            wrong_ref = [item for item in report["findings"] if item["rule_id"] == "CN-CLAIM-CORE-001"]
+            self.assertTrue(any(item["status"] == "DETERMINISTIC_FAIL" and "实际引用" in item["problem"] for item in wrong_ref), text)
+
+    def test_claim_2_missing_gives_not_verified_and_gap(self):
+        # 只有权利要求1时，claim-2-core-dependency check状态为NOT_VERIFIED
+        single_claim = checker.analyze_claims("1. 一种装置。")
+        core_check = next(item for item in single_claim["checks_performed"] if item["check_id"] == "claim-2-core-dependency")
+        self.assertEqual(core_check["status"], "NOT_VERIFIED")
+        self.assertTrue(len(core_check["gap_ids"]) > 0)
+
+    def test_claim_1_and_2_word_count_checks_separated_from_001(self):
+        # 验证权利要求1和2有自己的check，不与001混淆
+        report = checker.analyze_claims(
+            "1. " + "甲" * 350 +
+            "\n2. 根据权利要求1所述的" + "甲" * 450 +
+            "\n3. " + "甲" * 599
+        )
+        checks = {item["check_id"] for item in report["checks_performed"]}
+        self.assertIn("claim-1-word-count", checks)
+        self.assertIn("claim-2-word-count", checks)
+        self.assertIn("claim-word-count", checks)
+
+        # 分别有三个check处理三个规则
+        length_001_check = next((item for item in report["checks_performed"] if item["rule_id"] == "CN-CLAIM-LENGTH-001"), None)
+        length_002_check = next((item for item in report["checks_performed"] if item["rule_id"] == "CN-CLAIM-LENGTH-002"), None)
+        length_003_check = next((item for item in report["checks_performed"] if item["rule_id"] == "CN-CLAIM-LENGTH-003"), None)
+
+        self.assertIsNotNone(length_001_check)
+        self.assertIsNotNone(length_002_check)
+        self.assertIsNotNone(length_003_check)
 
 
 if __name__ == "__main__":

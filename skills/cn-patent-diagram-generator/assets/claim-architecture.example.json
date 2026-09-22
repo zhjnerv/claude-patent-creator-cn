@@ -64,6 +64,13 @@
       "claim_number": 1,
       "parent_claim_numbers": [],
       "declared_relations": []
+    },
+    {
+      "claim_number": 2,
+      "parent_claim_numbers": [
+        1
+      ],
+      "declared_relations": []
     }
   ],
   "method_claims": [
@@ -100,5 +107,18 @@
         }
       ]
     }
-  ]
+  ],
+  "core_protection_point": {
+    "claim_number": 2,
+    "parent_claim_number": 1,
+    "feature_ids": [
+      "F002"
+    ],
+    "statement": "特征 F002 是在前期检索基础上确定的最具区别性的技术创新点，落在权利要求 2 作为权利要求 1 的直接从属项，确保独权失守时仍有紧密的第一退守位。",
+    "review": {
+      "status": "approved",
+      "statement": "已对标检索结论，确认 F002 的核心创新不存在于已知现有技术组合。",
+      "reviewed_at": "2026-09-03"
+    }
+  }
 }

@@ -48,7 +48,20 @@ def fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         "步骤S2：处理所述输入数据。\n"
         "步骤S3：输出结果。\n",
     )
-    write_json(ledger, {"schema_id": "cn-patent-feature-ledger/v2", "features": []})
+    write_json(ledger, {
+        "schema_id": "cn-patent-feature-ledger/v2",
+        "features": [
+            {
+                "feature_id": "F001",
+                "name": "附加模块",
+                "statement": "插入在时钟源与前级模块之间的中间模块结构",
+                "classification": "distinguishing",
+                "claim_sites": [
+                    {"claim_number": 2, "part": "characterizing", "claim_type": "system", "execution_role": "module", "actor": "附加模块"}
+                ],
+            }
+        ],
+    })
     payload = {
         "schema_id": "cn-patent-claim-architecture/v1",
         "case_id": "case",
@@ -142,6 +155,13 @@ def fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
                 "loops": [{"from_step_id": "S3", "to_step_id": "S2", "condition": "未完成处理"}],
             }
         ],
+        "core_protection_point": {
+            "claim_number": 2,
+            "parent_claim_number": 1,
+            "feature_ids": ["F001"],
+            "statement": "特征 F001（附加模块）是本案最核心的区别特征，通过在时钟源与前级模块之间插入附加模块形成新的信号处理架构。",
+            "review": {"status": "approved", "statement": "已对标检索结论，确认 F001 不存在于现有技术。", "reviewed_at": "2026-09-03"},
+        },
     }
     write_json(contract, payload)
     return contract, claims, specification, tmp_path / "report.json"
@@ -259,3 +279,86 @@ def test_every_claim_with_steps_needs_method_contract(tmp_path):
     result = run(contract, claims, specification, output)
     assert result.returncode == 2
     assert "ARCH-METHOD-COVERAGE" in codes(output)
+
+
+def test_missing_core_protection_point_fails_shape_check(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    del payload["core_protection_point"]
+    write_json(contract, payload)
+    assert run(contract, claims, specification, output).returncode == 3
+
+
+def test_core_protection_point_claim_number_must_be_2(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    payload["core_protection_point"]["claim_number"] = 3
+    write_json(contract, payload)
+    assert run(contract, claims, specification, output).returncode == 2
+    assert "ARCH-CORE-SHAPE" in codes(output)
+
+
+def test_core_protection_point_claim_2_must_reference_only_claim_1(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    text = claims.read_text(encoding="utf-8").replace(
+        "2. 根据权利要求1所述的时钟系统，其特征在于，还包括设置于所述时钟源与所述前级模块之间的附加模块。",
+        "2. 另一种时钟系统，包括新的结构。",
+    )
+    write(claims, text)
+    payload["source_artifacts"][0]["sha256"] = digest(claims)
+    payload["claim_topologies"][1]["parent_claim_numbers"] = []
+    write_json(contract, payload)
+    assert run(contract, claims, specification, output).returncode == 2
+    assert "ARCH-CORE-CLAIM" in codes(output)
+
+
+def test_core_protection_point_topology_parent_must_be_claim_1(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    payload["claim_topologies"][1]["parent_claim_numbers"] = [8]
+    write_json(contract, payload)
+    assert run(contract, claims, specification, output).returncode == 2
+    assert "ARCH-CORE-CLAIM" in codes(output)
+
+
+def test_core_protection_point_feature_must_exist_in_ledger(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    payload["core_protection_point"]["feature_ids"] = ["F999"]
+    write_json(contract, payload)
+    assert run(contract, claims, specification, output).returncode == 2
+    assert "ARCH-CORE-FEATURE" in codes(output)
+
+
+def _rewrite_ledger(contract: Path, mutate) -> None:
+    ledger_path = contract.parent / "feature-ledger.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    mutate(ledger)
+    write_json(ledger_path, ledger)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    payload["source_artifacts"][2]["sha256"] = digest(ledger_path)
+    write_json(contract, payload)
+
+
+def test_core_protection_point_feature_must_be_distinguishing(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    _rewrite_ledger(contract, lambda ledger: ledger["features"][0].__setitem__("classification", "preamble"))
+    assert run(contract, claims, specification, output).returncode == 2
+    assert "ARCH-CORE-FEATURE" in codes(output)
+
+
+def test_core_protection_point_feature_must_be_in_claim_2(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    _rewrite_ledger(contract, lambda ledger: ledger["features"][0]["claim_sites"][0].__setitem__("claim_number", 3))
+    assert run(contract, claims, specification, output).returncode == 2
+    assert "ARCH-CORE-FEATURE" in codes(output)
+
+
+def test_core_protection_point_review_must_be_approved(tmp_path):
+    contract, claims, specification, output = fixture(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    payload["core_protection_point"]["review"]["status"] = "pending"
+    write_json(contract, payload)
+    assert run(contract, claims, specification, output).returncode == 2
+    assert "ARCH-CORE-REVIEW" in codes(output)

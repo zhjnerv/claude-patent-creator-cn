@@ -105,6 +105,7 @@ def validate_shape(contract: dict[str, Any]) -> None:
     required = {
         "schema_id", "case_id", "generated_at", "legal_effect", "source_artifacts",
         "independent_claims", "topology_nodes", "claim_topologies", "method_claims",
+        "core_protection_point",
     }
     missing = required - set(contract)
     if missing:
@@ -119,6 +120,8 @@ def validate_shape(contract: dict[str, Any]) -> None:
     for field in ("source_artifacts", "independent_claims", "topology_nodes", "claim_topologies", "method_claims"):
         if not isinstance(contract.get(field), list):
             raise ArchitectureError(f"{field} 必须是数组")
+    if not isinstance(contract.get("core_protection_point"), dict):
+        raise ArchitectureError("core_protection_point 必须是对象")
 
 
 def validate_contract(
@@ -321,6 +324,86 @@ def validate_contract(
 
     if set(topologies) != set(claims):
         error("ARCH-TOPOLOGY-COVERAGE", "claim_topologies", f"拓扑登记项号{sorted(topologies)}与权利要求项号{sorted(claims)}不一致")
+
+    # 核心保护点校验（在拓扑校验完成之后）
+    cpp = contract.get("core_protection_point")
+    if isinstance(cpp, dict):
+        cpp_claim_number = cpp.get("claim_number")
+        cpp_parent_claim_number = cpp.get("parent_claim_number")
+        cpp_feature_ids = cpp.get("feature_ids")
+        cpp_statement = cpp.get("statement")
+        cpp_review = cpp.get("review")
+
+        shape_errors = []
+        if not isinstance(cpp_claim_number, int) or isinstance(cpp_claim_number, bool) or cpp_claim_number != 2:
+            shape_errors.append("claim_number 必须为整数 2")
+        if not isinstance(cpp_parent_claim_number, int) or isinstance(cpp_parent_claim_number, bool) or cpp_parent_claim_number != 1:
+            shape_errors.append("parent_claim_number 必须为 1")
+        if not isinstance(cpp_feature_ids, list) or not cpp_feature_ids or len(set(cpp_feature_ids)) != len(cpp_feature_ids):
+            shape_errors.append("feature_ids 必须是非空、无重复的数组")
+        elif any(not isinstance(fid, str) or not re.match(r"^F[0-9]{3}$", fid) for fid in cpp_feature_ids):
+            shape_errors.append("feature_ids 中每项必须匹配 ^F[0-9]{3}$")
+        if not isinstance(cpp_statement, str) or not cpp_statement.strip():
+            shape_errors.append("statement 必须是非空字符串")
+
+        if shape_errors:
+            for msg in shape_errors:
+                error("ARCH-CORE-SHAPE", "core_protection_point", msg)
+        else:
+            # ARCH-CORE-CLAIM：权利要求 2 的存在与引用关系
+            if 2 not in claims:
+                error("ARCH-CORE-CLAIM", "claim2", "权利要求 2 必须存在")
+            elif claim_references(claims[2]) != [1]:
+                error("ARCH-CORE-CLAIM", "claim2", f"权利要求 2 必须仅引用权利要求 1，实际为{claim_references(claims[2])}")
+            if 2 not in topologies:
+                error("ARCH-CORE-CLAIM", "topology[2]", "拓扑中必须有权利要求 2 的记录")
+            elif sorted(topologies[2].get("parent_claim_numbers", [])) != [1]:
+                error("ARCH-CORE-CLAIM", "topology[2]", f"权利要求 2 的拓扑 parent_claim_numbers 必须为 [1]，实际为{sorted(topologies[2].get('parent_claim_numbers', []))}")
+
+            # ARCH-CORE-FEATURE：特征台账校验
+            ledger_path = source_paths.get("feature_ledger")
+            if ledger_path:
+                try:
+                    ledger_text = read_utf8(ledger_path, "特征台账")
+                    ledger = json.loads(ledger_text)
+                    features_list = ledger.get("features") if isinstance(ledger, dict) else None
+                    if not isinstance(features_list, list):
+                        error("ARCH-CORE-FEATURE", "feature_ledger", "特征台账中 features 必须是数组")
+                    else:
+                        features_by_id = {f.get("feature_id"): f for f in features_list if isinstance(f, dict)}
+                        for fid in cpp_feature_ids:
+                            feature = features_by_id.get(fid)
+                            if feature is None:
+                                error("ARCH-CORE-FEATURE", fid, f"特征 {fid} 在台账中未找到")
+                            else:
+                                if feature.get("classification") != "distinguishing":
+                                    error("ARCH-CORE-FEATURE", fid, f"特征 {fid} 的 classification 必须为 'distinguishing'，实际为 '{feature.get('classification')}'")
+                                claim_sites = feature.get("claim_sites")
+                                has_claim_2 = isinstance(claim_sites, list) and any(
+                                    isinstance(site, dict) and site.get("claim_number") == 2
+                                    for site in claim_sites
+                                )
+                                if not has_claim_2:
+                                    error("ARCH-CORE-FEATURE", fid, f"特征 {fid} 的 claim_sites 中必须至少有一条 claim_number=2 的记录")
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    error("ARCH-CORE-FEATURE", "feature_ledger", "特征台账不可解析或没有 features 数组")
+
+            # ARCH-CORE-REVIEW：复核状态检查
+            if isinstance(cpp_review, dict):
+                review_status = cpp_review.get("status")
+                review_statement = cpp_review.get("statement")
+                review_reviewed_at = cpp_review.get("reviewed_at")
+
+                if review_status not in {"pending", "approved", "revise"}:
+                    error("ARCH-CORE-REVIEW", "core_protection_point.review", f"review.status 必须为 pending/approved/revise，实际为 '{review_status}'")
+                if not isinstance(review_statement, str) or not review_statement.strip():
+                    error("ARCH-CORE-REVIEW", "core_protection_point.review", "review.statement 必须是非空字符串")
+                if not isinstance(review_reviewed_at, str) or not review_reviewed_at.strip():
+                    error("ARCH-CORE-REVIEW", "core_protection_point.review", "review.reviewed_at 必须是非空字符串")
+                if review_status != "approved":
+                    error("ARCH-CORE-REVIEW", "core_protection_point", "核心保护点复核未批准，不得进入后续阶段")
+            else:
+                error("ARCH-CORE-REVIEW", "core_protection_point", "review 必须是对象")
 
     visiting: set[int] = set()
     accumulated_cache: dict[int, list[dict[str, Any]]] = {}
