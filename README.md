@@ -200,3 +200,4 @@ skills/cn-patent-diagram-generator/references/drawing-terminology.md
 - 圆柱型节点只用于明确的存储/记录对象；原生关系标签字号不小于相邻节点字号的三分之二，纵向标签上下各至少保留一个箭头头部高度。
 - 用户修改的 Draw.io 范例只传递紧凑布局和视觉规则；正式图须从原始母版安全重建，恢复真实关系端点和原生线条文字，禁止传播手工断连、自连接或独立标签。
 - 新案件使用 `cn-patent-feature-ledger/v2`、`cn-patent-claim-architecture/v1`、`cn-patent-drawing-brief/v4` 和 `cn-patent-drawing-visual-review/v2`；存在用户范例时增加已批准的 `cn-patent-drawing-style-brief/v1`。
+- 区别特征按六种形态（耦合/时序条件/绑定/参数配比/反默认/失败驱动）发现并通过抽象层级测试；权 1 攻防按换特征→重述问题→降层级→加特征顺序，不得直接加字。

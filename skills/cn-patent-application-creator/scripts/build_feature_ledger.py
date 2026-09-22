@@ -62,6 +62,28 @@ PRIOR_ART_LABEL = {
     "not_searched": "未检索",
 }
 
+# CN-LEDGER-ABSTRACT-001 —— 限定成分标记（仅句法结构性词汇，禁止任何具体技术领域的机制名词）
+QUALIFIER_MARKERS: list[str] = [
+    # 条件／时序（不收录“当/若/在/与/由/随”这类单字，几乎任何中文句子都会命中）
+    "仅当", "仅在", "之后", "之前", "时才", "情况下", "条件下",
+    "满足", "触发", "响应于", "直到",
+    # 关系／位置
+    "位于", "设置于", "连接于", "固定于", "之间", "对应", "绑定",
+    "依赖", "基于", "根据", "决定", "变化",
+    # 数值用词（正则单独处理，见下方 _NUMERIC_RE）
+    "范围", "区间", "不超过", "不小于", "不大于", "不低于",
+    "大于", "小于", "等于", "介于",
+]
+
+# 数值区间正则：数字后跟单位或区间词
+_NUMERIC_RE = re.compile(
+    r"\d+(\.\d+)?\s*(%|℃|°|mm|cm|m|s|ms|Hz|kHz|MHz|V|A|W|Pa|MPa|kPa|mol|g|kg|L|mL"
+    r"|倍|次|个|项|级|以上|以下|以内|之间|至|到|~|—|-)"
+)
+
+# 多量绑定正则：同句中两个及以上"所述 X"由连接词串联
+_MULTI_SUOSHU_RE = re.compile(r"所述\S+.*?(?:与|及|和|并|且).*?所述\S+")
+
 
 class LedgerError(ValueError):
     """输入不符合 v1 台账合同时抛出。"""
@@ -295,6 +317,25 @@ class Report:
         self.add(rule_id, target, "REVIEW_REQUIRED", problem, remedy)
 
 
+def _has_qualifier(statement: str) -> bool:
+    """判断 statement 是否含有限定成分标记（句法结构启发式）。
+
+    规则：命中 QUALIFIER_MARKERS 中任意词、_NUMERIC_RE 数值区间、或
+    _MULTI_SUOSHU_RE 多量绑定即视为有限定成分，返回 True；否则返回 False。
+
+    设计约束：
+    - 判句法结构，不判词表；不得为特定领域加机制名词。
+    - 这是启发式，误报走 REVIEW_REQUIRED 由人工判断。
+    """
+    if any(marker in statement for marker in QUALIFIER_MARKERS):
+        return True
+    if _NUMERIC_RE.search(statement):
+        return True
+    if _MULTI_SUOSHU_RE.search(statement):
+        return True
+    return False
+
+
 def check_classification(ledger: dict[str, Any], report: Report) -> None:
     """分类与落点必须自洽，且必须存在至少一个区别特征。"""
 
@@ -351,11 +392,20 @@ def check_classification(ledger: dict[str, Any], report: Report) -> None:
                     "改判为 preamble，或下沉为从属权利要求限定后重新分类",
                 )
             if verdict in (None, "not_searched"):
-                report.review(
+                report.fail(
                     "CN-LEDGER-PRIOR-002",
                     fid,
-                    f"区别特征 {fid} 没有检索判定",
+                    f"区别特征 {fid} 没有检索判定，不得作为区别特征进入权利要求",
                     "补充 prior_art_status.verdict；未检索的区别特征不能支撑创造性论证",
+                )
+            statement = str(feature.get("statement", "")).strip()
+            if not _has_qualifier(statement):
+                report.review(
+                    "CN-LEDGER-ABSTRACT-001",
+                    fid,
+                    f"区别特征 {fid} 的表述只是部件/步骤/组分/机制的名称，缺少条件、位置关系、参数区间、绑定或时序限定",
+                    "改写为'条件 + 动作''绑定集合'或'位置关系 + 作用'形式，或改判 preamble；"
+                    "参见 references/distinguishing-feature-patterns.md",
                 )
     if distinguishing == 0:
         report.fail(

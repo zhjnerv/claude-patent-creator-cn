@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- 台账构建器新增 `CN-LEDGER-ABSTRACT-001`（区别特征表述缺少条件/位置/参数/绑定/时序限定时提示复核，判句法结构不判词表）；`CN-LEDGER-PRIOR-002` 升级为阻断。新增创造性防御地图 `cn-patent-inventive-step-map/v1` 设计稿（`docs/process-improvements/2026-09-22-inventive-step-map/`，待实现）。
+- 新增区别特征形态清单（`references/distinguishing-feature-patterns.md`）与抽象层级测试；阶段 1 和 2-C 按六种形态发现区别特征，2-C 增加"争议地带"第三态；权利要求 1 增加句法规则与起草期删除测试；阶段 5a 攻击响应改为换特征→重述问题→降层级→加特征强制顺序，向权 1 加字须书面说明。
+
 - 新增权利要求分项字数上限与核心保护点落位门：权利要求 1 ≤400 字（`CN-CLAIM-LENGTH-002`）、权利要求 2 ≤500 字（`CN-CLAIM-LENGTH-003`），其余各项沿用 600 字（`CN-CLAIM-LENGTH-001`），三者均为上限而非目标；`CN-CLAIM-CORE-001` 检查权利要求 2 直接且仅引用权利要求 1；`cn-patent-claim-architecture/v1` 新增必填 `core_protection_point`，登记权利要求 2 承载的核心区别特征并要求复核批准。
 - 公式规范化支持常见 LaTeX 符号宏和函数名宏按最长匹配转为 Unicode/普通名称；`\frac`、`\sqrt`、`\text`、修饰宏及 `\_` 等不支持项 fail-closed 报错，不再把反斜杠静默写入 Word 公式。
 - 关闭状态审计 F01—F11 的工程缺口：起草报告防输入/输出别名覆盖；引用区间完整有界展开；交付时独立复算当前 DOCX、Draw.io 和 PNG；保留母版箭头与命名形状，绑定真假分支及完整节点文字。

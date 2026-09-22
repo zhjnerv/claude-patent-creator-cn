@@ -113,3 +113,155 @@ def test_v2_value_producing_exception_requires_confidence(tmp_path):
     assert result.returncode == 2
     codes = {item["rule_id"] for item in json.loads(output.read_text(encoding="utf-8"))["findings"]}
     assert "CN-LEDGER-EXCEPTION-004" in codes
+
+
+# ---------------------------------------------------------------------------
+# 辅助：最小 v1 台账 fixture，只传入 features 列表即可，绕开 v2 relations 检查
+# ---------------------------------------------------------------------------
+
+def _make_minimal_ledger(tmp_path: Path, features: list[dict]) -> tuple[Path, Path, Path, Path]:
+    """构造包含 features 的最小 v1 台账，权利要求和说明书与 features 匹配。"""
+    claims_path = tmp_path / "权利要求书.md"
+    spec_path = tmp_path / "说明书.md"
+    ledger_path = tmp_path / "feature-ledger.json"
+    output_path = tmp_path / "feature-ledger-report.json"
+
+    # 从 features 中收集所有出现在权利要求里的 verbatim 和 name，拼成权利要求正文
+    claim1_parts = []
+    spec_anchors = []
+    for feat in features:
+        for site in feat.get("claim_sites") or []:
+            if site.get("claim_number") == 1 and site.get("verbatim"):
+                claim1_parts.append(site["verbatim"])
+        spec_anchors.append(feat["name"])
+        for ss in feat.get("spec_sites") or []:
+            if ss.get("anchor"):
+                spec_anchors.append(ss["anchor"])
+
+    claim1_body = "，".join(claim1_parts) if claim1_parts else "通用处理步骤"
+    spec_body = "，".join(spec_anchors)
+
+    claims_path.write_text(
+        f"# 权利要求书\n\n1. 一种方法，其特征在于：{claim1_body}。\n",
+        encoding="utf-8",
+    )
+    spec_path.write_text(
+        f"# 示例\n\n## 技术领域\n\n{spec_body}。\n\n## 背景技术\n\n现有技术。\n\n"
+        f"## 发明内容\n\n{spec_body}。\n\n## 附图说明\n\n无。\n\n"
+        f"## 具体实施方式\n\n{spec_body}。\n",
+        encoding="utf-8",
+    )
+    write_json(ledger_path, {
+        "schema_id": "cn-patent-feature-ledger/v1",
+        "case_id": "test",
+        "generated_at": "2026-09-01",
+        "legal_effect": "ADVISORY_ONLY",
+        "closest_prior_art": [],
+        "search_status": {"cnipa_manual_search": "completed", "statement": "已完成"},
+        "features": features,
+    })
+    return ledger_path, claims_path, spec_path, output_path
+
+
+def _feat(fid: str, name: str, statement: str, classification: str = "distinguishing",
+          verdict: str | None = "not_found_in_searched_outlets") -> dict:
+    """构造一个最小特征条目，claim_sites verbatim 与 name 相同。"""
+    prior = {"verdict": verdict} if verdict is not None else {}
+    return {
+        "feature_id": fid,
+        "name": name,
+        "statement": statement,
+        "classification": classification,
+        "prior_art_status": prior,
+        "technical_effect": "测试技术效果",
+        "evidence": [{"source": "测试", "locator": "1"}],
+        "claim_sites": (
+            []
+            if classification == "fallback_only"
+            else [{"claim_number": 1,
+                   "part": "preamble" if classification == "preamble" else "characterizing",
+                   "claim_type": "method",
+                   "execution_role": "runtime_step", "verbatim": name}]
+        ),
+        "spec_sites": [{"section": "发明内容", "anchor": name}],
+        "drawing_sites": [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# 任务 1：PRIOR-002 升级为 fail 的断言
+# ---------------------------------------------------------------------------
+
+def test_prior_002_no_verdict_is_deterministic_fail(tmp_path):
+    """distinguishing 特征 prior_art_status 缺 verdict → PRIOR-002 DETERMINISTIC_FAIL。"""
+    feat = _feat("F001", "无verdict特征", "无verdict特征", verdict=None)
+    ledger, claims, spec, output = _make_minimal_ledger(tmp_path, [feat])
+    result = run(ledger, claims, spec, output)
+    assert result.returncode == 2, result.stdout + result.stderr
+    findings = json.loads(output.read_text(encoding="utf-8"))["findings"]
+    matched = [f for f in findings if f["rule_id"] == "CN-LEDGER-PRIOR-002"]
+    assert matched, "应有 CN-LEDGER-PRIOR-002 finding"
+    assert matched[0]["status"] == "DETERMINISTIC_FAIL"
+
+
+def test_prior_002_not_searched_is_deterministic_fail(tmp_path):
+    """verdict=not_searched → PRIOR-002 DETERMINISTIC_FAIL。"""
+    feat = _feat("F001", "未检索特征", "未检索特征", verdict="not_searched")
+    ledger, claims, spec, output = _make_minimal_ledger(tmp_path, [feat])
+    result = run(ledger, claims, spec, output)
+    assert result.returncode == 2, result.stdout + result.stderr
+    findings = json.loads(output.read_text(encoding="utf-8"))["findings"]
+    codes = {f["rule_id"]: f["status"] for f in findings}
+    assert codes.get("CN-LEDGER-PRIOR-002") == "DETERMINISTIC_FAIL"
+
+
+# ---------------------------------------------------------------------------
+# 任务 2：CN-LEDGER-ABSTRACT-001 触发与豁免
+# ---------------------------------------------------------------------------
+
+def test_abstract_001_bare_name_triggers_review(tmp_path):
+    """只含名称（"缓存模块""回流阀""状态机"）的 distinguishing 特征 → 各触发 ABSTRACT-001 review。"""
+    feats = [
+        _feat("F001", "缓存模块", "缓存模块"),
+        _feat("F002", "回流阀", "回流阀"),
+        _feat("F003", "状态机", "状态机"),
+    ]
+    ledger, claims, spec, output = _make_minimal_ledger(tmp_path, feats)
+    result = run(ledger, claims, spec, output)
+    findings = json.loads(output.read_text(encoding="utf-8"))["findings"]
+    abstract_targets = {f["target_id"] for f in findings if f["rule_id"] == "CN-LEDGER-ABSTRACT-001"}
+    assert "F001" in abstract_targets
+    assert "F002" in abstract_targets
+    assert "F003" in abstract_targets
+
+
+def test_abstract_001_qualified_statements_no_trigger(tmp_path):
+    """含限定成分的 statement → 不触发 ABSTRACT-001。"""
+    qualified = [
+        "仅在冷却液温度回落至阈值以下后才开启回流阀",
+        "弹簧预紧量由相邻凸轮的最大升程决定",
+        "组分A与B的质量比处于1:2至1:3",
+        "所述请求标识与所述会话标识和所述设备标识绑定",
+    ]
+    feats = [_feat(f"F{i+1:03d}", stmt[:4], stmt) for i, stmt in enumerate(qualified)]
+    ledger, claims, spec, output = _make_minimal_ledger(tmp_path, feats)
+    result = run(ledger, claims, spec, output)
+    findings = json.loads(output.read_text(encoding="utf-8"))["findings"]
+    abstract_fids = {f["target_id"] for f in findings if f["rule_id"] == "CN-LEDGER-ABSTRACT-001"}
+    assert not abstract_fids, f"含限定成分的特征不应触发 ABSTRACT-001，实际触发：{abstract_fids}"
+
+
+def test_abstract_001_preamble_and_fallback_not_triggered(tmp_path):
+    """preamble 和 fallback_only 特征即使只有名称也不触发 ABSTRACT-001。"""
+    feats = [
+        _feat("F001", "缓存模块", "缓存模块", classification="preamble"),
+        _feat("F002", "状态机", "状态机", classification="fallback_only"),
+        # 至少需要一个 distinguishing 特征以通过 CN-LEDGER-CLASS-003
+        _feat("F003", "处理步骤", "处理步骤"),
+    ]
+    ledger, claims, spec, output = _make_minimal_ledger(tmp_path, feats)
+    result = run(ledger, claims, spec, output)
+    findings = json.loads(output.read_text(encoding="utf-8"))["findings"]
+    abstract_targets = {f["target_id"] for f in findings if f["rule_id"] == "CN-LEDGER-ABSTRACT-001"}
+    assert "F001" not in abstract_targets, "preamble 特征不应触发 ABSTRACT-001"
+    assert "F002" not in abstract_targets, "fallback_only 特征不应触发 ABSTRACT-001"
