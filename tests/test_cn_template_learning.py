@@ -239,7 +239,7 @@ def test_skill_and_orchestrator_bind_template_learning_handoff():
         "rank_template_candidates.py",
         "cn-patent-template-search/v1",
         "cn-patent-template-candidates/v1",
-        "cn-patent-template-selection/v1",
+        "cn-patent-template-selection/v2",
         "cn-patent-stage2-gate/v2",
         "cn-patent-template-style/v1",
         "cn-patent-style-brief/v1",

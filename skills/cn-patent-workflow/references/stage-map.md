@@ -15,7 +15,7 @@
 
 ## 交接原则
 
-- 检索阶段以 `cn-patent-template-search/v1`、`cn-patent-template-selection/v1` 交接。
+- 检索阶段以 `cn-patent-template-search/v1`、`cn-patent-template-selection/v2` 交接（v2 把申请人/代理机构质量纳入范本加权）。
 - 起草阶段以 `cn-patent-feature-ledger/v2`、`cn-patent-stage2-gate/v2`、`cn-patent-inventive-step-map/v1` 和 `cn-patent-claim-architecture/v1` 交接。
 - 判断题类门（检索/范本/IPC 缺用户原话、复核未批准、公知常识 medium、视觉复核未批准等）不阻断，以各报告的 `pending_decisions` 交接；打包前由 `collect_pending_decisions.py` 汇总为 `cn-patent-pending-decisions/v1`。阶段门 `CLEARED_WITH_PENDING` 与 `CLEARED` 同样允许进入下一阶段。
 - 附图阶段以 `cn-patent-drawing-brief/v4`、可选且已批准的 `cn-patent-drawing-style-brief/v1`、同图修改稿的安全重建报告、`cn-patent-drawing-visual-review/v2` 和最终验证报告交接。

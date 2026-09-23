@@ -30,7 +30,7 @@ from typing import Any
 SCHEMA_ID = "cn-patent-stage2-gate/v1"
 SCHEMA_ID_V2 = "cn-patent-stage2-gate/v2"
 SUPPORTED_SCHEMA_IDS = {SCHEMA_ID, SCHEMA_ID_V2}
-TEMPLATE_SELECTION_SCHEMA_ID = "cn-patent-template-selection/v1"
+TEMPLATE_SELECTION_SCHEMA_ID = "cn-patent-template-selection/v2"
 TEMPLATE_CANDIDATES_SCHEMA_ID = "cn-patent-template-candidates/v1"
 SEARCH_SCHEMA_ID = "cn-patent-template-search/v1"
 REPORT_SCHEMA_ID = "cn-patent-stage2-gate-report/v1"
@@ -366,21 +366,36 @@ def check_template_ipc_selection(
         )
 
     weights = selection.get("weights") or {}
-    ipc_weight = weights.get("ipc_similarity")
-    technical_weight = weights.get("technical_relevance")
-    if (
-        not isinstance(ipc_weight, (int, float))
-        or isinstance(ipc_weight, bool)
-        or ipc_weight <= 0
-        or not isinstance(technical_weight, (int, float))
-        or isinstance(technical_weight, bool)
-        or abs(float(ipc_weight) + float(technical_weight) - 1.0) > 1e-6
+    weight_fields = (
+        "technical_relevance",
+        "ipc_similarity",
+        "applicant_quality",
+        "agency_quality",
+    )
+    raw_weights = {field: weights.get(field) for field in weight_fields}
+    if not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+        for value in raw_weights.values()
     ):
         gate.block(
             "GATE-IPC-005",
-            "IPC 相似度未以正权重进入范本综合评分，或权重之和不为 1",
-            "重新运行 rank_template_candidates.py，并保留 ipc_similarity 正权重。",
+            "范本综合评分的四项权重缺失或不是非负数值",
+            "重新运行 rank_template_candidates.py 生成 v2 选择报告。",
         )
+    elif (
+        raw_weights["technical_relevance"] <= 0
+        or raw_weights["ipc_similarity"] <= 0
+        or abs(sum(float(value) for value in raw_weights.values()) - 1.0) > 1e-6
+    ):
+        gate.block(
+            "GATE-IPC-005",
+            "IPC 相似度或技术相关性未以正权重进入范本综合评分，或四项权重之和不为 1",
+            "重新运行 rank_template_candidates.py，并保留技术相关性与 ipc_similarity 正权重。",
+        )
+    ipc_weight = raw_weights["ipc_similarity"]
+    technical_weight = raw_weights["technical_relevance"]
+    applicant_weight = raw_weights["applicant_quality"]
+    agency_weight = raw_weights["agency_quality"]
 
     policy = selection.get("classification_policy") or {}
     if policy.get("preferred_provider") != "epo_ops":
@@ -402,6 +417,11 @@ def check_template_ipc_selection(
         for item in manifest_candidates or []
         if isinstance(item, dict) and isinstance(item.get("publication_number"), str)
     }
+    manifest_by_number = {
+        item.get("publication_number"): item
+        for item in manifest_candidates or []
+        if isinstance(item, dict) and isinstance(item.get("publication_number"), str)
+    }
     report_numbers = {
         item.get("publication_number")
         for item in candidates
@@ -414,24 +434,67 @@ def check_template_ipc_selection(
             "从当前候选清单重新运行 rank_template_candidates.py。",
         )
 
+    def entity_score(item: dict[str, Any], key: str) -> Any:
+        entity = item.get("entity_quality") or {}
+        entry = entity.get(key) or {}
+        return entry.get("score") if isinstance(entry, dict) else None
+
     recomputed: list[tuple[float, str]] = []
     for index, item in enumerate(candidates, start=1):
         if not isinstance(item, dict):
             gate.block("GATE-IPC-009", f"第 {index} 个候选不是对象", "重新生成选择报告。")
             continue
+        number = item.get("publication_number")
         technical_score = item.get("technical_relevance_score")
         similarity = (item.get("ipc_similarity") or {}).get("score")
         weighted_score = item.get("weighted_score")
-        if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in (technical_score, similarity, weighted_score)):
-            gate.block("GATE-IPC-009", f"第 {index} 个候选缺少可复算的评分字段", "重新生成选择报告。")
+        applicant_score = entity_score(item, "applicant")
+        agency_score = entity_score(item, "agency")
+        if not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            for value in (
+                technical_score, similarity, weighted_score, applicant_score, agency_score,
+            )
+        ):
+            gate.block(
+                "GATE-IPC-009",
+                f"第 {index} 个候选缺少可复算的评分字段（含申请人/代理机构质量分）",
+                "重新运行 rank_template_candidates.py 生成含 entity_quality 的报告。",
+            )
             continue
-        expected_score = float(technical_weight) * float(technical_score) + float(ipc_weight) * float(similarity)
+        expected_score = (
+            float(technical_weight) * float(technical_score)
+            + float(ipc_weight) * float(similarity)
+            + float(applicant_weight) * float(applicant_score)
+            + float(agency_weight) * float(agency_score)
+        )
         if abs(expected_score - float(weighted_score)) > 1e-6:
             gate.block(
                 "GATE-IPC-009",
-                f"候选 {item.get('publication_number')} 的加权得分不可复算",
+                f"候选 {number} 的加权得分不可复算（技术/IPC/申请人/代理机构四项）",
                 "不得手改得分；重新运行 rank_template_candidates.py。",
             )
+        manifest_item = manifest_by_number.get(number)
+        if isinstance(manifest_item, dict):
+            manifest_applicant = manifest_item.get("applicant")
+            manifest_fields = ("applicant", "agency")
+            if not (isinstance(manifest_applicant, str) and manifest_applicant.strip()):
+                manifest_fields = ("assignee", "agency")
+            for field in manifest_fields:
+                expected_name = manifest_item.get(field)
+                if not isinstance(expected_name, str) or not expected_name.strip():
+                    continue
+                reported_name = (item.get("entity_quality") or {}).get(
+                    "agency" if field == "agency" else "applicant"
+                ) or {}
+                actual_name = reported_name.get("name") if isinstance(reported_name, dict) else None
+                if actual_name != expected_name.strip():
+                    gate.block(
+                        "GATE-IPC-014",
+                        f"候选 {number} 的{('申请人' if field != 'agency' else '代理机构')}"
+                        f"著录与当前候选清单不一致（报告：{actual_name}；清单：{expected_name.strip()}）",
+                        "不得手改主体名称；从当前候选清单重新运行 rank_template_candidates.py。",
+                    )
         if item.get("eligible") is not False and item.get("ipc_status") == "resolved":
             recomputed.append((expected_score, str(item.get("publication_number"))))
         attempts = item.get("classification_attempts")
@@ -500,6 +563,29 @@ def check_template_ipc_selection(
                 "不得手改选定结果；重新运行排名脚本。",
             )
 
+    chosen_entity = chosen.get("entity_quality") or {}
+    missing_entities = [
+        label for key, label in (("applicant", "申请人"), ("agency", "代理机构"))
+        if ((chosen_entity.get(key) or {}).get("status") == "missing")
+        or not isinstance(chosen_entity.get(key), dict)
+    ]
+    if missing_entities:
+        gate.pending({
+            "key": "template.entity_evidence_missing",
+            "source": {"tool_id": "check_stage_gate", "rule_id": "GATE-IPC-015"},
+            "target": {"kind": "process", "locator": "template_selection"},
+            "question": f"选定范本 {number} 缺少{'、'.join(missing_entities)}著录，主体质量分为 0",
+            "adopted_default": "按现有主体信息继续",
+            "options": ["补齐申请人/代理机构后重跑排序", "确认无法获取并继续"],
+            "impact": ["grant_risk"],
+            "decider": "attorney"
+        })
+        gate.note(
+            "GATE-IPC-015",
+            f"选定范本 {number} 缺少{'、'.join(missing_entities)}著录，"
+            "申请人/代理机构质量分为 0，排序已退化为技术相关性 + IPC，产生待决项并继续。",
+        )
+
     if selected.get("override_recommended") and not str(selected.get("selection_reason", "")).strip():
         gate.pending({
             "key": "template.override_reason_pending",
@@ -530,10 +616,17 @@ def check_template_ipc_selection(
             "使用选定范本生成 template-style-guide.json，或重做最终选择。",
         )
     else:
+        applicant_info = chosen_entity.get("applicant") or {}
+        agency_info = chosen_entity.get("agency") or {}
         gate.note(
             "GATE-IPC-013",
             f"目标 IPC {target_codes}；选定范本 {number} IPC {chosen.get('ipc_codes')}；"
-            f"相似度 {match.get('score')}（{match.get('level')}），IPC 权重 {ipc_weight}。",
+            f"相似度 {match.get('score')}（{match.get('level')}）；"
+            f"申请人 {applicant_info.get('name') or '未记录'}（{applicant_info.get('status')}，"
+            f"{applicant_info.get('score')}）；代理机构 {agency_info.get('name') or '未记录'}"
+            f"（{agency_info.get('status')}，{agency_info.get('score')}）；"
+            f"权重 技术 {technical_weight}／IPC {ipc_weight}／申请人 {applicant_weight}／"
+            f"代理机构 {agency_weight}。",
         )
 
 

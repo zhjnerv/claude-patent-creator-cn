@@ -1,12 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "cn-patent-template-selection/v1",
-  "title": "中国专利范本 IPC 加权选择报告",
-  "description": "以技术相关性和 IPC 相似度共同选择范本，候选 IPC 优先由 EPO OPS 获取。",
+  "$id": "cn-patent-template-selection/v2",
+  "title": "中国专利范本加权选择报告",
+  "description": "以技术相关性、IPC 相似度、申请人质量与代理机构质量共同选择范本；候选 IPC 优先由 EPO OPS 获取。",
   "type": "object",
-  "required": ["schema_id", "target_ipc", "weights", "classification_policy", "candidates", "recommended", "selected", "inputs"],
+  "required": [
+    "schema_id",
+    "target_ipc",
+    "weights",
+    "entity_policy",
+    "classification_policy",
+    "candidates",
+    "recommended",
+    "selected",
+    "inputs"
+  ],
   "properties": {
-    "schema_id": {"const": "cn-patent-template-selection/v1"},
+    "schema_id": {"const": "cn-patent-template-selection/v2"},
     "target_ipc": {
       "type": "object",
       "required": ["status", "ipc_codes", "source"],
@@ -19,12 +29,38 @@
     },
     "weights": {
       "type": "object",
-      "required": ["technical_relevance", "ipc_similarity"],
+      "required": [
+        "technical_relevance",
+        "ipc_similarity",
+        "applicant_quality",
+        "agency_quality"
+      ],
       "properties": {
         "technical_relevance": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
-        "ipc_similarity": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+        "ipc_similarity": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "applicant_quality": {"type": "number", "minimum": 0, "maximum": 1},
+        "agency_quality": {"type": "number", "minimum": 0, "maximum": 1}
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "四项权重之和必须为 1；技术相关性与 IPC 相似度必须保持正权重。"
+    },
+    "entity_policy": {
+      "type": "object",
+      "required": ["source", "tiers", "unlisted_score", "missing_score", "match_rule"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "tiers": {"type": "object"},
+        "unlisted_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "missing_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "match_rule": {"type": "string", "minLength": 1},
+        "boundary": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "entity_evidence": {
+      "type": "object",
+      "description": "候选人中申请人/代理机构著录的覆盖统计，用于暴露主体信息静默缺失。",
+      "additionalProperties": true
     },
     "classification_policy": {
       "type": "object",
@@ -40,7 +76,12 @@
     "selected": {"type": "object"},
     "inputs": {
       "type": "object",
-      "required": ["search_query_path", "search_query_sha256", "candidate_manifest_path", "candidate_manifest_sha256"],
+      "required": [
+        "search_query_path",
+        "search_query_sha256",
+        "candidate_manifest_path",
+        "candidate_manifest_sha256"
+      ],
       "properties": {
         "search_query_path": {"type": "string", "minLength": 1},
         "search_query_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

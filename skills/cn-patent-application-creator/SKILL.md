@@ -86,15 +86,17 @@ python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-application-creato
 
 `search-query.json` 固定输出 `cn-patent-template-search/v1`，含 `uyanip_plan`（现成检索式 + 结果页直开 URL）、`target_ipc` 判定状态、BigQuery SQL 与 CNIPA 人工检索清单；`target_ipc.status` 仅在显式提供 `ipc_codes` 时为 `determined`，否则不得进入范本排序。
 
-形成 1—10 篇 `cn-patent-template-candidates/v1` 候选，优先同领域、已授权、权利要求不少于 10 项、说明书和附图完整，逐篇给出 `technical_relevance_score` 与理由。候选 IPC 获取顺序固定为 **EPO OPS → 分类缓存 → 候选输入**，未取得 IPC 的候选不得成为推荐或最终范本。
+形成 1—10 篇 `cn-patent-template-candidates/v1` 候选，优先同领域、已授权、权利要求不少于 10 项、说明书和附图完整，逐篇给出 `technical_relevance_score` 与理由，并**逐篇著录申请人（`applicant`）与代理机构（`agency`）**——这两项直接进入排序，缺一即按 0 分计并触发待决项。候选 IPC 获取顺序固定为 **EPO OPS → 分类缓存 → 候选输入**，未取得 IPC 的候选不得成为推荐或最终范本。
 
-用 `rank_template_candidates.py` 按技术相关性 0.65 + IPC 相似度 0.35 排序，输出 `cn-patent-template-selection/v1`：
+用 `rank_template_candidates.py` 按**技术相关性 0.30 + IPC 相似度 0.20 + 申请人质量 0.25 + 代理机构质量 0.25** 排序，输出 `cn-patent-template-selection/v2`：
 
 ```bash
 python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-application-creator/scripts/rank_template_candidates.py" \
   --search-query "<search-query.json>" --candidates "<template-candidates.json>" \
-  --ipc-weight 0.35 --output "<template-selection.json>"
+  --output "<template-selection.json>"
 ```
+
+技术相关性与 IPC 决定“能不能借鉴”，很容易同时满足；申请人/代理机构决定“文本质量值不值得学”，默认合计占一半权重。主体质量分来自 `references/notable-entities.txt` 名单命中（Tier 1 = 1.00、Tier 2 = 0.70、未上榜 = 0.30、缺著录 = 0.00）。改权重必须四项同时给出且和为 1；技术相关性与 IPC 必须保持正权重。
 
 **范本由用户确认，不由本技能替用户选定**；未确认前阶段门记 `pending` 并写入待决清单，按默认起草策略继续，只有文件缺失、哈希不一致或 schema 错误才阻断。检索清单生成、候选门槛与排序命令的完整说明见 `references/search-and-template-flow.md`；评分算法、IPC 相似度分层与 EPO 降级规则见 `references/template-ipc-selection.md`。
 ### 2-B：提取范本风格并生成起草简报
