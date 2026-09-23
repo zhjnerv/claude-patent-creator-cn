@@ -2,6 +2,16 @@
 
 本规范用于在中国发明专利起草阶段选择撰写范本。目标是避免只凭标题、摘要或申请人知名度挑选范本，使范本与目标技术方案在国际专利分类（IPC）上也具有可核对的接近关系。
 
+## 零、检索渠道优先级
+
+1. **度衍命令检索（uyanip.com，首选）**：由 `generate_search_query.py` 的 `uyanip_plan` 直接给出检索式与结果页直开 URL；入口 `https://www.uyanip.com/search/command`。默认范围为中国（`country_filter = AND GJ:(CN)`）。
+2. **CNIPA 专利检索及分析系统（人工）**：作为官方库留档渠道。
+3. **Google Patents Public Datasets / BigQuery**：作为补充验证渠道。
+
+候选发现与全文/附图/PDF 取证优先在度衍完成；逐篇候选 IPC 仍按第三节的 EPO OPS 优先顺序获取，两条证据链互不替代。
+
+`uyanip_plan.expressions` 的用途分级必须遵守：`determined_ipc` 为人工确定分类的主检索式；`broad_expansion` 仅用于扩大检索面，不得据宽分类判定范本相似度。
+
 ## 一、目标 IPC 必须先确定
 
 `technical-features.json` 必须显式填写经人工判断的 `ipc_codes`：

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-09-23
+
+- skill-lint 正式验收整改：分发树与复盘文档移除真实案件示例并改为虚构中性示例；附图 Skill 对 `drawio-skill` 的引用加外部前缀；起草 SKILL.md 阶段 2-A 范本 pending 措辞与待决语义对齐；claims-analyzer 文档输出 schema 名改为 `cn-patent-review-raw-report/v2`，description 补齐触发/不触发边界；formalities 退出码句补法律免责。
+- 起草 SKILL.md 收敛：运行根目录改为一次定义的 `$ROOT`；说明书输出格式下沉到 `references/specification-output-format.md`，DOCX 组装门禁并入 `references/docx-assembly.md`；v1 历史 schema 移至 `references/legacy/` 与 `legacy-*` 文件名；开发用脚本移入 `tests/`。
+- 综合审查器 `finalize` 对语义审查输入顶层字段执行 `exact_fields.review_input` 白名单，多出或缺少字段退出码 3。
+- 附图稳定性合同正向夹具升级为 `cn-patent-drawing-verification/v4` 形状；为关系标签字号、节点文字适配、纵向间距、PNG 白边四条约束新增合法近似正例；新增遍历全部合同用例复算退出码的回归测试。
+- stage-map 登记 `cn-patent-inventive-step-map/v1`、`cn-patent-pending-decisions/v1` 与 `CLEARED_WITH_PENDING` 交接；权利要求规则矩阵与跨文档规则标注产出者。
+
 - 新增待决事项机制 `cn-patent-pending-decisions/v1`：阶段门（检索/范本/IPC 缺用户原话）、台账（未检索/缺效果/表述抽象）、架构门（简要性与核心保护点复核未批准）、附图（视觉复核与样式简报未批准）等判断题门不再阻断，改为保守默认 + `pending_decisions` + 继续；`collect_pending_decisions.py` 汇总为 JSON 与《待决事项清单.md》；DOCX 组装新增 `--copy review|submission`，审稿版对 `【待决-Dnnn】` 段落黄色高亮，提交副本剥离标记并由 `DOCX-PENDING-MARKS` 复核。产物有效性门（哈希、编号、引用、DOCX 结构）保持硬阻断。
 - 实现创造性防御地图 `cn-patent-inventive-step-map/v1`（schema、`validate_inventive_step_map.py`、参考文档）：特征 × 对比文件矩阵含 `COMMON_KNOWLEDGE` 虚拟条目；最小集合覆盖复算、显式优先级分级、耦合须有说明书逐字锚点且无单篇同时覆盖；claim_set 由权利要求自动推导（每个独权及其直接从属项各自成组）；partial 不计覆盖但过半提示，公知常识 medium 与未检索特征按最坏情况参与分级并写入待决；核心保护点须为最小 defensible 特征集之一。
 - 台账构建器新增 `CN-LEDGER-ABSTRACT-001`（区别特征表述缺少条件/位置/参数/绑定/时序限定时提示复核，判句法结构不判词表）；`CN-LEDGER-PRIOR-002` 升级为阻断。新增创造性防御地图 `cn-patent-inventive-step-map/v1` 设计稿（`docs/process-improvements/2026-09-22-inventive-step-map/`，待实现）。

@@ -57,6 +57,18 @@ def test_search_generator_produces_project_schema_query_and_gap_disclosure(tmp_p
     assert manifest["target_ipc"]["suggested_ipc_codes"] == ["H04L", "G06F", "H04W"]
     assert "CNIPA 官方库检索仍需人工执行" in result.stdout
     assert "不证明已完成 CNIPA 官方库检索" in manifest["cnipa_guide"]
+    uyanip = manifest["uyanip_plan"]
+    assert uyanip["priority"] == 1
+    assert "uyanip.com" in uyanip["command_url"]
+    assert uyanip["country_filter"] == "AND GJ:(CN)"
+    assert uyanip["expressions"], "至少生成一个度衍检索式"
+    assert all(
+        e["result_url"].startswith("https://www.uyanip.com/result?fromMode=5")
+        for e in uyanip["expressions"]
+    )
+    assert any(e["purpose"] == "determined_ipc" for e in uyanip["expressions"])
+    assert any(e["purpose"] == "broad_expansion" for e in uyanip["expressions"])
+    assert uyanip["field_codes"]["专利名称"] == "ZLMC"
 
 
 

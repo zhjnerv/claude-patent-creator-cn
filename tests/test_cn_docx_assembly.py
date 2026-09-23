@@ -78,18 +78,23 @@ def test_docx_assembly_skill_assets_are_utf8_and_documented():
         assert not raw.startswith(b"\xef\xbb\xbf")
         raw.decode("utf-8")
 
-    skill = (
-        ROOT / "skills" / "cn-patent-application-creator" / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    creator = ROOT / "skills" / "cn-patent-application-creator"
+    skill = (creator / "SKILL.md").read_text(encoding="utf-8")
+    docx_reference = (creator / "references" / "docx-assembly.md").read_text(encoding="utf-8")
+    # SKILL.md 只保留入口指针，DOCX 技术细节按阶段加载到 reference。
     for required in (
         "assemble_application_docx.py",
         "references/docx-assembly.md",
+    ):
+        assert required in skill
+    combined = skill + "\n" + docx_reference
+    for required in (
         "m:oMath",
         "Strong",
         "visual_review_completed",
+        "视觉检查默认关闭",
     ):
-        assert required in skill
-    assert "视觉检查默认关闭" in skill
+        assert required in combined
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "只有用户明确要求视觉检查时才导出 PDF/PNG" in agents

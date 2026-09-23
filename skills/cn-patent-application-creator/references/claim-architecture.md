@@ -52,13 +52,13 @@ source_node_id
 例如父项限定：
 
 ```text
-时钟源 → 前级DDS.reference_clock
+温度传感单元 → 回流控制模块.temperature_input
 ```
 
 从项又限定：
 
 ```text
-时钟源 → 附加DDS → 前级DDS.reference_clock
+温度传感单元 → 信号调理电路 → 回流控制模块.temperature_input
 ```
 
 则从项继承后存在冲突。正确做法是在父项使用能够同时覆盖直接和间接实施方式的一般关系，再由从项限定中间模块。

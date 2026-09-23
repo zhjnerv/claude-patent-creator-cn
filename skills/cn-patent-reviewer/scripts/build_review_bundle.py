@@ -691,6 +691,14 @@ def read_semantic_input(path: Path, manifest: dict[str, Any], contract) -> dict[
     _, payload = read_json(path, contract.limits["max_report_output_bytes"], "语义审查输入")
     if not isinstance(payload, dict):
         raise OrchestrationError("语义审查输入顶层必须是对象")
+
+    expected_keys = set(contract.data["exact_fields"]["review_input"])
+    actual_keys = set(payload)
+    if expected_keys != actual_keys:
+        extra = sorted(actual_keys - expected_keys)
+        missing = sorted(expected_keys - actual_keys)
+        raise OrchestrationError(f"review-input 顶层字段与规范不一致：多出 {extra} / 缺少 {missing}")
+
     if payload.get("schema_version") != SEMANTIC_INPUT_SCHEMA:
         raise OrchestrationError(f"语义审查输入 schema_version 必须为 {SEMANTIC_INPUT_SCHEMA}")
     if payload.get("prepare_id") != manifest["prepare_id"]:

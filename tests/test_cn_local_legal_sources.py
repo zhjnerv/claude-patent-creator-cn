@@ -41,7 +41,10 @@ class LocalLegalSourcesTests(unittest.TestCase):
         for skill in CN_SKILLS:
             with self.subTest(skill=skill):
                 content = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-                self.assertIn(RUNTIME_ROOT, content)
+                prefix = RUNTIME_ROOT[: -len("/references/cn-legal-sources/")]
+                # 允许两种写法：直接写完整运行根路径，或先定义 ROOT="<完整运行根>" 再以 $ROOT 引用法源。
+                uses_root_variable = f'ROOT="{prefix}"' in content and "$ROOT/references/cn-legal-sources/" in content
+                self.assertTrue(RUNTIME_ROOT in content or uses_root_variable, skill)
 
 
 if __name__ == "__main__":

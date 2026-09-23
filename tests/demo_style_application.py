@@ -10,8 +10,12 @@ from __future__ import annotations
 import argparse
 import json
 
-from style_applicator import build_style_brief, load_style_guide
-from template_style_contract import StyleGuideValidationError
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills" / "cn-patent-application-creator" / "scripts"))
+from style_applicator import build_style_brief, load_style_guide  # noqa: E402
+from template_style_contract import StyleGuideValidationError  # noqa: E402
 
 
 def main() -> int:

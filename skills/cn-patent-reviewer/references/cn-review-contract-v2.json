@@ -169,6 +169,14 @@
       "location",
       "excerpt"
     ],
+    "review_input": [
+      "schema_version",
+      "prepare_id",
+      "evidence_binding",
+      "assessments",
+      "semantic_gaps",
+      "provenance_artifacts"
+    ],
     "artifact": [
       "artifact_id",
       "path",

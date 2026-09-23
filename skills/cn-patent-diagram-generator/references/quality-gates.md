@@ -39,6 +39,7 @@
 <!-- skill-lint:constraint PATENT-DRAWING-PNG-MARGIN -->
 - PNG未按 `diagram` 图形边界导出，或任一方向白边超过 `png_margin_policy.maximum_margin_pixels`；
 - 通过后期裁剪PNG掩盖母版或导出模式问题；
+合法近似正例：`assets/stability/near-miss-legal-PATENT-DRAWING-PNG-MARGIN.json`
 <!-- skill-lint:constraint PATENT-DRAWING-OFFICIAL-EXPORT -->
 - Draw.io 官方 CLI 导出报告缺失，或报告源 SHA 与当前 `.drawio` 不一致；
 - 最终 PNG 哈希与导出报告不一致；
@@ -51,15 +52,18 @@
 <!-- skill-lint:constraint PATENT-DRAWING-EDGE-LABEL-READABILITY -->
 - 原生关系标签未显式设置字号，或字号小于相邻节点文字字号的三分之二；
 - 纵向相邻节点间的原生关系标签未居中，或标签文字块上方/下方任一净空小于一个箭头头部高度；
+合法近似正例：`assets/stability/near-miss-legal-PATENT-DRAWING-EDGE-LABEL-READABILITY.json`
 <!-- skill-lint:constraint PATENT-DRAWING-NODE-TEXT-FIT -->
 - 技术节点未显式设置字号或未启用自动换行；
 - 任一可见行包含超过12个汉字，却没有使用 `<br>` 或换行符显式换行；
 - A4归一化字号小于合同下限，节点宽度与字号比例超过合同上限，或外框高度超过实际文字块高度的2倍；
 - 预计换行数超过上限，或按字体、行高和内边距估算后文字无法容纳在节点中；
 - 通过缩小字体把长文字硬塞进固定节点，或通过扩大整张画布绕过字号门禁；
+合法近似正例：`assets/stability/near-miss-legal-PATENT-DRAWING-NODE-TEXT-FIT.json`
 <!-- skill-lint:constraint PATENT-DRAWING-VERTICAL-SPACING -->
 - 直接上下相连节点的垂直净距在扣除原生关系标签文字块高度和一个箭头头部高度后，有效空白小于相邻节点较小字体行高的2倍，或大于该字体行高的3倍；
 - 把关系标签或箭头头部计入节点外框/节点文字高度，或通过缩小字号、放大画布、增设无语义空节点规避2—3倍字体行高门禁；
+合法近似正例：`assets/stability/near-miss-legal-PATENT-DRAWING-VERTICAL-SPACING.json`
 <!-- skill-lint:constraint PATENT-DRAWING-COLOR -->
 - 使用渐变、阴影、暗色背景、过量颜色，或颜色成为唯一语义载体；
 - 同一申请的附图风格、字体、编号方式或配色无理由漂移。

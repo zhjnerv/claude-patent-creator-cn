@@ -1,6 +1,6 @@
 ---
 name: cn-patent-claims-analyzer
-description: 审查中国发明专利权利要求的编号、引用候选、草稿占位和有限术语线索；不代替中国专利法律语义或现有技术审查。
+description: 本技能应在审查中国发明专利权利要求的编号、引用形式、多项从属、分项字数上限、权利要求 2 核心从属落位、草稿占位和有限术语线索时使用。不要用于：代替中国专利法律语义审查、现有技术检索或创造性判断。
 ---
 
 # 中国发明专利权利要求原始检查
@@ -34,7 +34,7 @@ python3 "${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLU
 
 ## CN v2 原始报告
 
-报告 schema 为 `cn-patent-claims-raw-report/v2`，顶层字段严格遵循 `cn-review-contract-v2.json` 的 `raw_report` 白名单。finding 使用稳定 `finding_id`，gap 使用稳定 `gap_id`；下游只能通过 origin ID 一对一继承，不能删除、重复、合并或降级原始 `DETERMINISTIC_FAIL` 和 `REVIEW_REQUIRED`。
+报告 schema 为 `cn-patent-review-raw-report/v2`，顶层字段严格遵循 `cn-review-contract-v2.json` 的 `raw_report` 白名单。finding 使用稳定 `finding_id`，gap 使用稳定 `gap_id`；下游只能通过 origin ID 一对一继承，不能删除、重复、合并或降级原始 `DETERMINISTIC_FAIL` 和 `REVIEW_REQUIRED`。
 
 引用引导语只能产生 `dependent_candidate` 或 `dependent_unresolved`。脚本不得仅因“根据/按照/如 + 权利要求”确认从属关系，也不得把候选引用纳入确定性自引用、向后引用或循环结论。
 

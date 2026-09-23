@@ -92,7 +92,7 @@ def test_style_analyzer():
         abstract_file.write_text(MOCK_ABSTRACT, encoding="utf-8")
 
         # 运行分析器
-        script = Path(__file__).parent / "analyze_template_style.py"
+        script = Path(__file__).resolve().parents[1] / "skills" / "cn-patent-application-creator" / "scripts" / "analyze_template_style.py"
 
         result = subprocess.run(
             [

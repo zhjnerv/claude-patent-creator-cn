@@ -85,7 +85,7 @@ Manifest 版本为 `cn-patent-application-manifest/v2`。本检查器只使用 `
 6. 对纸件规格、图面清晰度、必要文字、请求书字段等脚本未覆盖事项明确标记 `NOT_VERIFIED`。
 7. 修改前展示修改清单并取得用户确认；任何文件变化后重新计算哈希并重跑检查。
 
-CLI 退出码：`0` 表示检查器成功执行且没有确定性失败，`2` 表示报告含确定性失败，`3` 表示 manifest、路径、编码或 JSON 输入无效，`4` 表示资源越限。资源错误不生成报告或中国法 finding。UTF-8 BOM、超过 24 MiB 总文书、单文书/manifest/文书数/JSON 深度/字符串/finding/gap/check/output 上限均 fail-fast。退出码 `0` 不表示申请文件实体或形式已经通过。
+CLI 退出码：`0` 表示检查器成功执行且没有确定性失败（不表示申请文件形式合规或任何法律结论成立），`2` 表示报告含确定性失败，`3` 表示 manifest、路径、编码或 JSON 输入无效，`4` 表示资源越限。资源错误不生成报告或中国法 finding。UTF-8 BOM、超过 24 MiB 总文书、单文书/manifest/文书数/JSON 深度/字符串/finding/gap/check/output 上限均 fail-fast。退出码 `0` 不表示申请文件实体或形式已经通过。
 
 ## 状态
 

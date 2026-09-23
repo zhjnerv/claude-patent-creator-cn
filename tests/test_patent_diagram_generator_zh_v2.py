@@ -720,7 +720,7 @@ def test_official_cli_export_and_final_verifier_pass(tmp_path):
     ],
 )
 def test_stability_checker_has_positive_and_negative_evidence(constraint_id, observable, measurement, negative_fixture):
-    positive_fixture = "positive-step-isomorphism.json" if constraint_id == "PATENT-DRAWING-STEP-ISOMORPHISM" else "positive-final-verification.json"
+    positive_fixture = "positive-step-isomorphism.json" if constraint_id == "PATENT-DRAWING-STEP-ISOMORPHISM" else "positive-final-verification-v4.json"
     positive = run(
         STABILITY_CHECKER,
         "--report", str(STABILITY_ASSETS / positive_fixture),

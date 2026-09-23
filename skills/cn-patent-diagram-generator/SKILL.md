@@ -23,7 +23,7 @@ metadata:
 
 ## 依赖与停止条件
 
-1. 当前环境必须提供 `drawio-skill`。先读取其 `SKILL.md`；按图型需要再读 `references/diagram-types.md`、`references/xml-authoring.md`、`references/autolayout.md` 和 `references/troubleshooting.md`。
+1. 当前环境必须提供 `drawio-skill`。先读取其 `SKILL.md`；按图型需要再读该 Skill 根目录下的 `drawio-skill/references/diagram-types.md`、`drawio-skill/references/xml-authoring.md`、`drawio-skill/references/autolayout.md` 和 `drawio-skill/references/troubleshooting.md`（以下 `drawio-skill/` 前缀均指外部 Skill 根目录，不是本 Skill 的 `references/`）。
 2. 必须存在 Draw.io Desktop CLI（`drawio` 或 `draw.io`）。
 3. 任一依赖缺失时，只能交付已校验的绘图合同并报告阻塞；不得改用 Pillow、浏览器截图、canvas 或第二套坐标模型冒充正式导出。
 4. 所有输出写入用户指定案件目录，不得把客户案件或图面产物写入 Skill 目录。
@@ -75,7 +75,7 @@ Schema：`references/drawing-style-brief-schema.json`；安全重建报告：`re
 
 专利起草端先生成 `cn-patent-drawing-brief/v4`，schema：
 
-`references/patent-drawing-brief-schema-v4.json`；v2/v3 仅用于旧案件回放。v4必须额外绑定已通过验证的 `cn-patent-claim-architecture/v1`
+`references/patent-drawing-brief-schema-v4.json`；v1/v2/v3 旧 schema 已移至 `references/legacy/`，仅供旧案件回放对照，脚本不再加载。v4必须额外绑定已通过验证的 `cn-patent-claim-architecture/v1`
 
 最少绑定：
 
@@ -238,7 +238,7 @@ python scripts/verify_patent_drawings.py \
 
 ## 约束追踪与回归证据
 
-`config/instruction-stability-contract.json` 将来源绑定、范例样式、技术覆盖、步骤同构、直接连接、节点文字适配、纵向节点间距、PNG白边、克制配色、官方导出和视觉绑定十一类硬约束，逐项映射到主动 checker、正例和最小违规反例。`assets/stability/` 中的样本只用于 Skill 自身回归，不得作为客户案件的最终验收结果。正式声明多轮稳定性时，仍需由候选外评估者提供签名硬约束基线、至少三轮独立运行证据和 Skill Lint 回执。
+`config/instruction-stability-contract.json` 将来源绑定、范例样式、技术覆盖、步骤同构、直接连接、节点文字适配、纵向节点间距、PNG白边、克制配色、官方导出和视觉绑定十三类硬约束，逐项映射到主动 checker、正例和最小违规反例。`assets/stability/` 中的样本只用于 Skill 自身回归，不得作为客户案件的最终验收结果。正式声明多轮稳定性时，仍需由候选外评估者提供签名硬约束基线、至少三轮独立运行证据和 Skill Lint 回执。
 
 ## 硬失败与回炉
 

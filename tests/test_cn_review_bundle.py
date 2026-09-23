@@ -325,6 +325,25 @@ class StaleEvidenceTests(ChainTestCase):
         self.assertIn("冻结证据失效", stderr)
         self.assertFalse(self.chain.bundle_path.exists())
 
+    def test_semantic_input_with_extra_top_level_key_is_rejected(self):
+        self.assertEqual(self.run_quiet(self.chain.prepare)[0], 0)
+        def mutate(payload):
+            payload["overall_verdict"] = "PASS"
+        self.chain.rewrite_json(self.chain.template_path, mutate)
+        code, stderr = self.run_quiet(self.chain.finalize)
+        self.assertEqual(code, 3)
+        self.assertFalse(self.chain.bundle_path.exists())
+
+    def test_semantic_input_with_missing_top_level_key_is_rejected(self):
+        self.assertEqual(self.run_quiet(self.chain.prepare)[0], 0)
+        def mutate(payload):
+            if "semantic_gaps" in payload:
+                del payload["semantic_gaps"]
+        self.chain.rewrite_json(self.chain.template_path, mutate)
+        code, stderr = self.run_quiet(self.chain.finalize)
+        self.assertEqual(code, 3)
+        self.assertFalse(self.chain.bundle_path.exists())
+
 
 class ProvenanceArtifactTests(ChainTestCase):
     """前置检索、范本、阶段门、台账和架构证据必须进入可复算绑定链。"""
@@ -746,7 +765,6 @@ class ProhibitedConclusionTests(ChainTestCase):
             if path.is_file():
                 with self.subTest(artifact=path.name):
                     self.assertFalse(path.read_bytes().startswith(b"\xef\xbb\xbf"), f"{path.name} 含 BOM")
-
 
 if __name__ == "__main__":
     unittest.main()

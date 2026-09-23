@@ -7,11 +7,11 @@
 ## 依赖发现
 
 1. 从可用 Skill 列表定位 `drawio-skill` 并读取其 `SKILL.md`。
-2. 按需读取其：
-   - `references/diagram-types.md`
-   - `references/xml-authoring.md`
-   - `references/autolayout.md`
-   - `references/troubleshooting.md`
+2. 按需读取其根目录下的（路径相对 `drawio-skill`，不是本 Skill）：
+   - `drawio-skill/references/diagram-types.md`
+   - `drawio-skill/references/xml-authoring.md`
+   - `drawio-skill/references/autolayout.md`
+   - `drawio-skill/references/troubleshooting.md`
 3. 检测 Draw.io Desktop CLI：`drawio --version`，再尝试 `draw.io --version`。
 4. `drawio-skill` 或官方 CLI 不可用时，停在已校验的 `drawing-brief.json`，报告缺失依赖；不得退回自制 Pillow、canvas 或浏览器截图渲染并声称正式附图完成。
 
@@ -34,7 +34,7 @@
 ## Authoring mode
 
 - 标准流程、状态、时序等图型：优先使用 `drawio-skill` 推荐的原生生成方式。
-- 需要专利部件标记、固定节点 ID、精确路由或复杂容器：读取 `xml-authoring.md`，手写或程序生成原生 XML。
+- 需要专利部件标记、固定节点 ID、精确路由或复杂容器：读取 `drawio-skill/references/xml-authoring.md`，手写或程序生成原生 XML。
 - 超过约15个节点、层级或连线较多：优先使用 `drawio-skill/scripts/autolayout.py` 形成候选布局，再按专利要求人工调整；不要直接用大量绝对坐标硬凑。
 - 申请文件通常不直接使用 Mermaid 转换结果，因为节点 ID、附图标记、线型和原生线条文字需要严格控制；只有简单图且转换后仍满足交接合同时才可使用。
 

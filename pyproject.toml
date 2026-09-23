@@ -1,6 +1,6 @@
 [project]
 name = "claude-patent-creator-cn"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lightweight Chinese patent drafting, review, drawing, and delivery skill package"
 readme = "README.md"
 requires-python = ">=3.10,<3.15"

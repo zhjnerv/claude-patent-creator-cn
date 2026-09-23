@@ -223,3 +223,20 @@ python skills/cn-patent-application-creator/scripts/verify_docx_assembly.py \
 - 组装报告内相对 `output`、`inputs.template` 和 `inputs.artifacts[].path` 均以报告所在目录解析，不以调用命令时的工作目录解析。
 - 最终交付时重新复算当前组装报告及 DOCX；历史 freshness PASS 不替代当前字节检查。每幅图必须提供 Draw.io 和最终 PNG 路径，两者均须与附图验证报告的当前哈希一致。
 - 默认测试也不进行 DOCX 视觉导出。仅用户明确授权后，才设置 `CN_PATENT_RUN_VISUAL_TESTS=1` 运行专门的合成 DOCX 渲染测试；普通机器检查不能被表述为人工视觉验收。
+
+## 阶段 6 组装门禁（自 SKILL.md 下沉）
+
+> 本节中的 `$ROOT` 为 `SKILL.md`「运行根目录」一节定义的运行根目录变量。
+
+当用户要求单一 Word 文件，或者案件根目录存在用户指定的 `输出模版.docx` 时，读取 `$ROOT/skills/cn-patent-application-creator/references/docx-assembly.md`，运行 `scripts/assemble_application_docx.py`。DOCX 是四类技术文书的机械组装形式，不改变“四文书”业务边界。
+
+必须遵守以下门禁：
+
+- 模板是版式和样式的唯一事实来源；必须复用五个分节、页眉页脚、页码、行号、页边距、权利要求自动编号和既有样式，不得另造近似版式；
+- “技术领域、背景技术、发明内容、附图说明、具体实施方式”使用模板的 `Heading 1` 段落样式，并对标题文字应用 Word `Strong` 字符样式（中文界面显示为“要点”），不得只设置 `bold=True`；
+- 数学表达式必须直接生成 Word 原生 OMML `m:oMath` 对象；使用 `m:f`、`m:sSub`、`m:sSup`、`m:sSubSup` 和 `m:d` 保留下标、上标、分式与括号结构。Linux、macOS 和 Windows 均不得依赖普通字符、公式截图或仅设置数学字体冒充原生公式；
+- 说明书附图按 `说明书附图.md` 顺序读取当前流程生成的 PNG；摘要附图从 `说明书摘要.md` 的“摘要附图：图N。”机械确定；
+- 脚本必须输出 `cn-patent-docx-assembly/v2` 报告。默认机器校验五分节、页眉序列、标题“要点”样式数量、原生公式对象数量、图片数量和 DOCX ZIP 完整性，并逐一绑定模板、四文书、全部嵌入图片和输出 DOCX 的 SHA-256；只有请求视觉检查时才记录 PDF 页数；
+- **视觉检查默认关闭。** 不得仅因生成或修改了 Word 就导出 PDF、渲染 PNG、截图或逐页目视确认。只有用户明确要求检查 Word 版式、逐页截图或视觉效果时，才传入 `--visual-review`；Windows 使用 Word、Linux/macOS 使用 LibreOffice 导出 PDF，再校验 PDF 页数与 PNG 页数一致并由操作者目视复核。未请求视觉检查不构成交付缺陷。
+- 未请求视觉检查时，报告写入 `render.requested=false`、`visual_review_completed=null` 和 `status=STRUCTURE_VERIFIED`；请求后写入 `render.requested=true`、`visual_review_completed=false`，待外部人工复核记录完成状态。组装后必须运行 `scripts/verify_docx_assembly.py` 复算当前输入和输出哈希；任一源文书或附图变化都使旧 DOCX 报告失效。
+- 附图属于交付范围时，附图最终验证通过后必须重新组装DOCX，并运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`，证明DOCX报告中的逐图路径和SHA-256等于当前最终PNG；不得只凭图片数量相同沿用旧Word。用户明确要求逐页视觉检查时，视觉记录使用 `references/docx-visual-review-schema.json`。

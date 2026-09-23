@@ -415,7 +415,8 @@
       "case_ids": [
         "positive-edge-label-readability-check",
         "edge-label-readability-mismatch",
-        "edge-label-readability-mismatch-historical"
+        "edge-label-readability-mismatch-historical",
+        "near-miss-legal-PATENT-DRAWING-EDGE-LABEL-READABILITY"
       ],
       "historical_failure_known": true
     },
@@ -435,7 +436,8 @@
         "node-text-mismatch",
         "node-height-mismatch",
         "chinese-wrap-mismatch",
-        "node-text-mismatch-historical"
+        "node-text-mismatch-historical",
+        "near-miss-legal-PATENT-DRAWING-NODE-TEXT-FIT"
       ],
       "historical_failure_known": true
     },
@@ -453,7 +455,8 @@
       "case_ids": [
         "positive-vertical-spacing-check",
         "vertical-spacing-mismatch",
-        "vertical-spacing-mismatch-historical"
+        "vertical-spacing-mismatch-historical",
+        "near-miss-legal-PATENT-DRAWING-VERTICAL-SPACING"
       ],
       "historical_failure_known": true
     },
@@ -541,7 +544,8 @@
       "case_ids": [
         "positive-png-margin-check",
         "excessive-margin",
-        "excessive-margin-historical"
+        "excessive-margin-historical",
+        "near-miss-legal-PATENT-DRAWING-PNG-MARGIN"
       ],
       "historical_failure_known": true
     }
@@ -559,7 +563,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -595,7 +599,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -631,7 +635,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -667,7 +671,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -721,7 +725,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -757,7 +761,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -793,7 +797,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -901,7 +905,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -955,7 +959,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -1045,7 +1049,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -1117,7 +1121,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -1153,7 +1157,7 @@
       "artifacts": [
         {
           "artifact_id": "verification-report",
-          "path": "assets/stability/positive-final-verification.json"
+          "path": "assets/stability/positive-final-verification-v4.json"
         }
       ],
       "expected": "pass",
@@ -1212,6 +1216,78 @@
       ],
       "expected": "blocked",
       "expected_exit_code": 3
+    },
+    {
+      "id": "near-miss-legal-PATENT-DRAWING-EDGE-LABEL-READABILITY",
+      "kind": "positive",
+      "constraint_ids": [
+        "PATENT-DRAWING-EDGE-LABEL-READABILITY"
+      ],
+      "checker_ids": [
+        "edge-label-readability-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/near-miss-legal-PATENT-DRAWING-EDGE-LABEL-READABILITY.json"
+        }
+      ],
+      "expected": "pass",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "near-miss-legal-PATENT-DRAWING-NODE-TEXT-FIT",
+      "kind": "positive",
+      "constraint_ids": [
+        "PATENT-DRAWING-NODE-TEXT-FIT"
+      ],
+      "checker_ids": [
+        "node-text-fit-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/near-miss-legal-PATENT-DRAWING-NODE-TEXT-FIT.json"
+        }
+      ],
+      "expected": "pass",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "near-miss-legal-PATENT-DRAWING-VERTICAL-SPACING",
+      "kind": "positive",
+      "constraint_ids": [
+        "PATENT-DRAWING-VERTICAL-SPACING"
+      ],
+      "checker_ids": [
+        "vertical-spacing-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/near-miss-legal-PATENT-DRAWING-VERTICAL-SPACING.json"
+        }
+      ],
+      "expected": "pass",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "near-miss-legal-PATENT-DRAWING-PNG-MARGIN",
+      "kind": "positive",
+      "constraint_ids": [
+        "PATENT-DRAWING-PNG-MARGIN"
+      ],
+      "checker_ids": [
+        "png-margin-check"
+      ],
+      "artifacts": [
+        {
+          "artifact_id": "verification-report",
+          "path": "assets/stability/near-miss-legal-PATENT-DRAWING-PNG-MARGIN.json"
+        }
+      ],
+      "expected": "pass",
+      "expected_exit_code": 0
     }
   ],
   "stability": {

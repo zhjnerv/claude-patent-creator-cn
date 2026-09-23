@@ -61,10 +61,10 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/verify_package.py
 # 结果：PASS
 
-python3 /home/zhjwork/.codex/skills/skill-lint/scripts/harness_failure_audit.py batch --root skills
+python3 <skill-lint>/scripts/harness_failure_audit.py batch --root skills
 # 结果：PASS，7 个 Skill，0 findings
 
-python3 /home/zhjwork/.codex/skills/skill-lint/scripts/security_scan.py batch --root skills
+python3 <skill-lint>/scripts/security_scan.py batch --root skills
 # 结果：WARN，0 critical/high；12 个既有 medium/low 能力提示
 ```
 

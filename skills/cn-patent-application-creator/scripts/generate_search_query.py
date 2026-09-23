@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从结构化技术特征生成 CNIPA 人工检索清单和 BigQuery 查询。
+"""从结构化技术特征生成度衍命令检索方案（首选）、CNIPA 人工检索清单和 BigQuery 查询。
 
 该脚本不调用翻译服务，也不声称完成 CNIPA 官方库检索。英文关键词来自：
 1. 输入中显式提供的 ``keywords_en``；
@@ -14,10 +14,30 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import quote
 from typing import Any
 
 SCHEMA_ID = "cn-patent-template-search/v1"
 PUBLICATIONS_TABLE = "patents-public-data.patents.publications"
+UYANIP_COMMAND_URL = "https://www.uyanip.com/search/command"
+UYANIP_RESULT_TEMPLATE = "https://www.uyanip.com/result?fromMode=5&exp=%s&country=%s"
+UYANIP_DETAIL_TEMPLATE = "https://www.uyanip.com/detail?aid=%s"
+UYANIP_DEFAULT_COUNTRY = "AND GJ:(CN)"
+UYANIP_FIELD_CODES = {
+    "所有字段": "KEYWORD",
+    "专利名称": "ZLMC",
+    "摘要": "ZY",
+    "权利要求": "QLYQ",
+    "名称或摘要": "ZLMC_ZY",
+    "IPC分类号": "IPC",
+    "公开号": "GKH",
+    "申请号": "SQH",
+    "申请人": "SQREN",
+    "发明人": "FMR",
+    "法律状态": "FLZTA",
+    "公开日": "GKR",
+    "申请日": "SQR",
+}
 
 # 只覆盖高频基础术语；未命中的词必须显式留给人工处理。
 TERM_GLOSSARY = {
@@ -318,6 +338,89 @@ def generate_cnipa_guide(
     return "\n".join(lines)
 
 
+def _uyanip_term_expr(values: list[str], field: str) -> str:
+    return "%s:(%s)" % (field, " OR ".join(values))
+
+
+def _uyanip_result_url(expr: str, country: str) -> str:
+    return UYANIP_RESULT_TEMPLATE % (quote(expr, safe=""), quote(country, safe=""))
+
+
+def generate_uyanip_plan(
+    keywords_cn: list[str],
+    determined_ipc: list[str],
+    suggested_codes: list[str],
+    untranslated: list[str],
+) -> dict[str, Any]:
+    """生成度衍（uyanip.com）命令检索方案，作为首选检索渠道。
+
+    只生成检索式与可直开的结果页 URL，不执行检索、不代替人工留档。
+    人工确定的 IPC 进入主检索式；仅由关键词映射得到的宽分类只作扩展建议，
+    与范本相似度计算保持同一边界。
+    """
+
+    terms = [t for t in keywords_cn if t][:8]
+    determined = [c for c in determined_ipc if c][:3]
+    suggested = [c for c in suggested_codes if c and c not in determined][:3]
+    expressions: list[dict[str, str]] = []
+    if terms:
+        wide = _uyanip_term_expr(terms, "KEYWORD")
+        expressions.append({
+            "name": "wide_keyword",
+            "expr": wide,
+            "purpose": "keyword_discovery",
+            "result_url": _uyanip_result_url(wide, UYANIP_DEFAULT_COUNTRY),
+        })
+        if len(terms) >= 2:
+            narrow = "%s AND %s" % (
+                _uyanip_term_expr(terms[:1], "ZLMC_ZY"),
+                _uyanip_term_expr(terms[1:2], "ZLMC_ZY"),
+            )
+            expressions.append({
+                "name": "name_abstract_narrow",
+                "expr": narrow,
+                "purpose": "keyword_narrow",
+                "result_url": _uyanip_result_url(narrow, UYANIP_DEFAULT_COUNTRY),
+            })
+    for code in determined:
+        scoped = "IPC:(%s)" % code if not terms else "IPC:(%s) AND %s" % (code, _uyanip_term_expr(terms, "KEYWORD"))
+        slug = re.sub(r"[^0-9A-Za-z]+", "", code) or "code"
+        expressions.append({
+            "name": "ipc_scoped_" + slug,
+            "expr": scoped,
+            "purpose": "determined_ipc",
+            "result_url": _uyanip_result_url(scoped, UYANIP_DEFAULT_COUNTRY),
+        })
+    for code in suggested:
+        broad = "IPC:(%s)" % code if not terms else "IPC:(%s) AND %s" % (code, _uyanip_term_expr(terms, "KEYWORD"))
+        slug = re.sub(r"[^0-9A-Za-z]+", "", code) or "code"
+        expressions.append({
+            "name": "ipc_broad_" + slug,
+            "expr": broad,
+            "purpose": "broad_expansion",
+            "result_url": _uyanip_result_url(broad, UYANIP_DEFAULT_COUNTRY),
+        })
+    return {
+        "priority": 1,
+        "channel": "uyanip_command_search",
+        "channel_name": "度衍命令检索（首选）",
+        "command_url": UYANIP_COMMAND_URL,
+        "result_url_template": UYANIP_RESULT_TEMPLATE,
+        "detail_url_template": UYANIP_DETAIL_TEMPLATE,
+        "country_filter": UYANIP_DEFAULT_COUNTRY,
+        "country_note": "默认检索中国；其他国家用 AND GJ:(US)、AND GJ:(WO) 等，代码取专利国别码。",
+        "boolean_operators": ["AND", "OR", "NOT"],
+        "boolean_note": "AND 收窄、OR 扩大、NOT 排除，支持括号分组与嵌套；关键词支持前缀通配符 *。",
+        "field_codes": UYANIP_FIELD_CODES,
+        "expression_policy": "purpose=determined_ipc 为人工确定分类的主检索式；purpose=broad_expansion 仅用于扩展，不得据宽分类判定范本相似度。",
+        "expressions": expressions,
+        "detail_text_note": "详情页 /detail?aid=<申请号> 可直接读取权利要求与说明书正文；附图取 img[src*=picnew.duyandb.com]，PDF 下载按钮为 #pdf-download。",
+        "automation_note": "所有 window.open 类操作要求标签页在前台（先 bringToFront），否则静默失败；否则改用结果页 URL 直开。",
+        "untranslated_cn_terms": untranslated,
+        "not_executed_notice": "本方案只生成检索式与 URL，不证明已完成度衍检索；命中数、日期与筛选理由须人工留档。",
+    }
+
+
 def build_search_manifest(features: dict[str, Any], *, limit: int = 100) -> dict[str, Any]:
     if not isinstance(features, dict):
         raise InputContractError("技术特征输入必须是 JSON 对象")
@@ -329,6 +432,12 @@ def build_search_manifest(features: dict[str, Any], *, limit: int = 100) -> dict
         all_search_terms,
         classifications["cpc_codes"],
         limit=limit,
+    )
+    uyanip_plan = generate_uyanip_plan(
+        keywords["keywords_cn"],
+        [c for c in (target_ipc.get("ipc_codes") or []) if c],
+        [c for c in (target_ipc.get("suggested_ipc_codes") or []) if c],
+        keywords["untranslated_cn_terms"],
     )
     guide = generate_cnipa_guide(
         keywords["keywords_cn"],
@@ -343,10 +452,12 @@ def build_search_manifest(features: dict[str, Any], *, limit: int = 100) -> dict
         "keywords": keywords,
         "classifications": classifications,
         "target_ipc": target_ipc,
+        "uyanip_plan": uyanip_plan,
         "cnipa_guide": guide,
         "bigquery_table": PUBLICATIONS_TABLE,
         "bigquery_query": bigquery_query,
         "manual_actions_required": [
+            "先用度衍命令检索（uyanip_plan，首选渠道）执行并留档命中数与筛选理由",
             "补充 untranslated_cn_terms 的英文同义词",
             "在 CNIPA 官方系统执行并留档检索",
             (
