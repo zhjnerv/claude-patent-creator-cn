@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 最终专利申请 DOCX 默认使用仓库根目录 `模版.docx`。组装器解析该模板的编号样式链接，方法步骤采用模板正文示范的第 2 层；案件目录中的 `输出模版.docx` 不再自动接管，只有显式 `--template` 才替换。
 - 建档范本主体名单：`references/notable-entities.txt` 代理机构部分补实，Tier 1 共 18 条（含同一机构的不同著录写法）、Tier 2 共 27 条，依据 2025 年发明授权量百强榜、润桐 RainPat 申请量/授权率榜、IPRDB 综合榜、Chambers 中国 IP、北京市专利代理师协会 5A 等级评定、IPRdaily×incoPat 百人以上代理机构榜等公开榜单；文件内登记来源、建档日期与偏差说明。
 - 范本选取改为四因子加权：技术相关性 0.30 + IPC 相似度 0.20 + 申请人质量 0.25 + 代理机构质量 0.25（`cn-patent-template-selection/v2`）。主体质量按 `references/notable-entities.txt` 名单分层（Tier 1 = 1.00、Tier 2 = 0.70、未上榜 = 0.30、未著录 = 0.00 并标 `missing`）。候选清单新增 `applicant`/`agency`；四项权重须同时给出且和为 1，技术相关性与 IPC 保持正权重；阶段门复算四项加权、校验主体著录与候选清单一一致（`GATE-IPC-014`），选定范本缺主体著录时产生待决项（`GATE-IPC-015`）；v1 选择合同移入 `references/legacy/`。
 

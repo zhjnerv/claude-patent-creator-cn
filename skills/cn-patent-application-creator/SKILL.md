@@ -200,9 +200,9 @@ python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-reviewer/scripts/v
 ## 阶段 6——打包
 
 先汇总待决事项再出待决清单与两种副本：一旦进入撰写，流程不因判断题停下，各脚本遇到需人拍板的事项一律采用保守默认继续并在 `pending_decisions` 留痕；打包前由 `collect_pending_decisions.py` 汇总为 `cn-patent-pending-decisions/v1` 与《待决事项清单.md》。交付范围、审稿版/提交副本差异与打包门禁见 `references/red-team-and-packaging.md`。
-### Word 模板组装（用户要求或案件存在输出模板时）
+### Word 模板组装（用户要求单一 Word 文件时）
 
-用户要求单一 Word 文件，或案件根目录存在指定的 `输出模版.docx` 时，读取 `references/docx-assembly.md`（含阶段 6 组装门禁、待决标记与两种副本）并运行 `scripts/assemble_application_docx.py`；随后必须运行 `scripts/verify_docx_assembly.py`，附图属于交付范围时再运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`。DOCX 是交付容器，不是第五类法定技术文书。
+用户要求单一 Word 文件时，读取 `references/docx-assembly.md`（含阶段 6 组装门禁、待决标记与两种副本）并运行 `scripts/assemble_application_docx.py`。默认模板是仓库根目录 `模版.docx`，不读取案件目录的 `输出模版.docx`；只有显式 `--template` 才替换。随后必须运行 `scripts/verify_docx_assembly.py`，附图属于交付范围时再运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`。DOCX 是交付容器，不是第五类法定技术文书。
 
 评审版与提交版差异（标记保留/剥离、高亮处理）、原生公式与字符样式要求详见 `references/docx-assembly.md`。
 ## 本工作流旨在防止的失败模式

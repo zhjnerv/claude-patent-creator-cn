@@ -68,9 +68,17 @@ def main() -> int:
         relative = path.relative_to(ROOT)
         try:
             raw = path.read_bytes()
+        except OSError as exc:
+            errors.append(f"源文件不可读取：{relative}：{exc}")
+            continue
+        if relative.as_posix() in _policy.APPROVED_BINARY_ASSETS:
+            if path.suffix.lower() != ".docx" or not raw.startswith(b"PK\x03\x04"):
+                errors.append(f"核准模板不是有效 DOCX：{relative}")
+            continue
+        try:
             raw.decode("utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            errors.append(f"源文件不可读取或不是 UTF-8 文本：{relative}：{exc}")
+        except UnicodeDecodeError as exc:
+            errors.append(f"源文件不是 UTF-8 文本：{relative}：{exc}")
             continue
         if raw.startswith(b"\xef\xbb\xbf"):
             errors.append(f"文件含 UTF-8 BOM：{relative}")

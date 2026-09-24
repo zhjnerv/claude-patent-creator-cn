@@ -14,6 +14,8 @@ build/
 *-workspace/
 archive/
 *.docx
+# 最终专利申请文件的项目模板，不是临时产物
+!/模版.docx
 *.pdf
 *.png
 *.svg

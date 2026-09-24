@@ -131,7 +131,7 @@ Microsoft Word 只影响 Windows 下的分页和 PDF 渲染，不再是生成原
 
 ## DOCX 输入模板
 
-DOCX 组装仍要求案件根目录提供 `输出模版.docx`。模板必须包含五个分节及相应页眉，并提供权利要求自动编号、`Normal (Web)`、`Title`、`Heading 1`、`正文2`、`附图图号` 和 `Strong` 样式。仓库不会猜造客户专用模板。
+DOCX 组装默认使用仓库根目录的 `模版.docx`。该模板包含五个分节及相应页眉，并提供权利要求自动编号、`Normal (Web)`、`Title`、`Heading 1`、`正文2`、`附图图号` 和 `Strong` 样式。案件目录里的 `输出模版.docx` 不会自动接管；只有显式传入 `--template` 才替换项目模板。
 
 具体合同见：
 

@@ -46,39 +46,75 @@ def _integer(raw: str | None, label: str, *, level: bool = False) -> int:
     return value
 
 
-def _parse_final_numbering(numbering_bytes: bytes) -> dict[int, set[int]]:
-    """只接受真实层级定义；startOverride 不能凭空增加层级。"""
+def _numbering_style_targets(styles_bytes: bytes | None) -> tuple[dict[str, int], dict[str, int]]:
+    """返回编号样式的 styleId / 名称到 numId 的映射。"""
+    by_id: dict[str, int] = {}
+    by_name: dict[str, int] = {}
+    if not styles_bytes:
+        return by_id, by_name
+    root = ET.fromstring(styles_bytes)
+    for style in root.findall(W + "style"):
+        if style.get(W + "type") != "numbering":
+            continue
+        num = style.find(f"{W}pPr/{W}numPr/{W}numId")
+        if num is None:
+            continue
+        nid = _integer(num.get(W + "val"), "编号样式 numId")
+        style_id = style.get(W + "styleId")
+        name = style.find(W + "name")
+        if style_id:
+            by_id[style_id] = nid
+        if name is not None and name.get(W + "val"):
+            by_name[name.get(W + "val")] = nid
+    return by_id, by_name
+
+
+def _parse_final_numbering(
+    numbering_bytes: bytes, styles_bytes: bytes | None = None,
+) -> dict[int, set[int]]:
+    """只接受真实层级定义；startOverride 不能凭空增加层级。
+
+    ``w:numStyleLink`` 本身没有 ``w:lvl``。按 OOXML，这种抽象编号的层级
+    来自所链接编号样式的 ``numId``，本地 ``w:lvl`` 不参与解析。
+    """
     root = ET.fromstring(numbering_bytes)
     if root.tag != W + "numbering":
         raise ValueError("word/numbering.xml 根节点必须为 w:numbering")
-    abstracts: dict[int, set[int]] = {}
+    direct_levels: dict[int, set[int]] = {}
+    style_links: dict[int, str] = {}
     for abstract in root.findall(W + "abstractNum"):
         aid = _integer(abstract.get(W + "abstractNumId"), "abstractNumId")
-        if aid in abstracts:
+        if aid in direct_levels:
             raise ValueError(f"重复 abstractNumId={aid}")
+        link = abstract.find(W + "numStyleLink")
+        if link is not None and link.get(W + "val"):
+            style_links[aid] = link.get(W + "val")
+            direct_levels[aid] = set()
+            continue
         levels: set[int] = set()
         for item in abstract.findall(W + "lvl"):
             level = _integer(item.get(W + "ilvl"), "lvl.ilvl", level=True)
             if level in levels:
                 raise ValueError(f"abstractNumId={aid} 重复 ilvl={level}")
             levels.add(level)
-        abstracts[aid] = levels
-    result: dict[int, set[int]] = {}
+        direct_levels[aid] = levels
+    num_to_abstract: dict[int, int] = {}
+    overrides: dict[int, list[tuple[int, bool]]] = {}
     for num in root.findall(W + "num"):
         nid = _integer(num.get(W + "numId"), "numId")
-        if nid == 0 or nid in result:
+        if nid == 0 or nid in num_to_abstract:
             raise ValueError(f"编号实例 numId 无效或重复：{nid}")
         ref = num.find(W + "abstractNumId")
         aid = _integer(None if ref is None else ref.get(W + "val"), "abstractNumId 引用")
-        if aid not in abstracts:
+        if aid not in direct_levels:
             raise ValueError(f"numId={nid} 引用了未定义 abstractNumId={aid}")
-        levels = set(abstracts[aid])
-        overrides: set[int] = set()
+        seen: set[int] = set()
+        parsed_overrides: list[tuple[int, bool]] = []
         for override in num.findall(W + "lvlOverride"):
             level = _integer(override.get(W + "ilvl"), "lvlOverride.ilvl", level=True)
-            if level in overrides:
+            if level in seen:
                 raise ValueError(f"numId={nid} 重复 lvlOverride={level}")
-            overrides.add(level)
+            seen.add(level)
             children = override.findall(W + "lvl")
             if len(children) > 1:
                 raise ValueError("lvlOverride 只能包含一个 w:lvl")
@@ -86,11 +122,45 @@ def _parse_final_numbering(numbering_bytes: bytes) -> dict[int, set[int]]:
                 child_level = _integer(children[0].get(W + "ilvl"), "lvl.ilvl", level=True)
                 if child_level != level:
                     raise ValueError("lvlOverride 与其 w:lvl 的 ilvl 不一致")
+            parsed_overrides.append((level, bool(children)))
+        num_to_abstract[nid] = aid
+        overrides[nid] = parsed_overrides
+
+    by_id, by_name = _numbering_style_targets(styles_bytes)
+    resolved: dict[int, set[int]] = {}
+
+    def resolve(nid: int, stack: tuple[int, ...]) -> set[int]:
+        if nid in resolved:
+            return resolved[nid]
+        if nid in stack:
+            raise ValueError(f"编号样式链接循环：numId={nid}")
+        aid = num_to_abstract[nid]
+        link = style_links.get(aid)
+        if link is None:
+            levels = set(direct_levels[aid])
+        else:
+            if not styles_bytes:
+                raise ValueError(f"abstractNumId={aid} 使用 numStyleLink={link!r}，但缺少 word/styles.xml")
+            if link in by_id:
+                target = by_id[link]
+            elif link in by_name:
+                target = by_name[link]
+            else:
+                raise ValueError(f"abstractNumId={aid} 的 numStyleLink={link!r} 没有对应编号样式")
+            if target == 0:
+                raise ValueError(f"编号样式 {link!r} 不能使用 numId=0")
+            if target not in num_to_abstract:
+                raise ValueError(f"编号样式 {link!r} 指向了未定义 numId={target}")
+            levels = set(resolve(target, stack + (nid,)))
+        for level, has_definition in overrides[nid]:
+            if has_definition:
                 levels.add(level)
             elif level not in levels:
                 raise ValueError(f"numId={nid} 的 lvlOverride={level} 没有真实层级定义")
-        result[nid] = levels
-    return result
+        resolved[nid] = levels
+        return levels
+
+    return {nid: resolve(nid, ()) for nid in num_to_abstract}
 
 
 def _validate_numbering_references(document_bytes: bytes, numbering: dict[int, set[int]] | None) -> None:
@@ -115,8 +185,12 @@ def _validate_numbering_references(document_bytes: bytes, numbering: dict[int, s
             raise ValueError(f"numId={nid} 引用了未定义层级 ilvl={level}")
 
 
-def _validate_final_numbering(document_bytes: bytes, numbering_bytes: bytes | None) -> None:
-    numbering = None if numbering_bytes is None else _parse_final_numbering(numbering_bytes)
+def _validate_final_numbering(
+    document_bytes: bytes,
+    numbering_bytes: bytes | None,
+    styles_bytes: bytes | None = None,
+) -> None:
+    numbering = None if numbering_bytes is None else _parse_final_numbering(numbering_bytes, styles_bytes)
     _validate_numbering_references(document_bytes, numbering)
 
 
@@ -133,8 +207,10 @@ def check_docx_package(path: Path, errors: list[dict[str, str]]) -> None:
             if missing:
                 errors.append({"code": "DOCX-PACKAGE-MISSING", "message": f"DOCX 缺少必需成员：{missing}"})
                 return
+            names = set(archive.namelist())
             document_bytes = archive.read("word/document.xml")
-            numbering_bytes = archive.read("word/numbering.xml") if "word/numbering.xml" in archive.namelist() else None
+            numbering_bytes = archive.read("word/numbering.xml") if "word/numbering.xml" in names else None
+            styles_bytes = archive.read("word/styles.xml") if "word/styles.xml" in names else None
     except BadZipFile:
         errors.append({"code": "DOCX-PACKAGE-ZIP", "message": "输出文件不是有效 DOCX ZIP 包"})
         return
@@ -145,7 +221,7 @@ def check_docx_package(path: Path, errors: list[dict[str, str]]) -> None:
         errors.append({"code": "DOCX-PACKAGE-XML", "message": f"word/document.xml 不是有效 XML：{exc}"})
         return
     try:
-        _validate_final_numbering(document_bytes, numbering_bytes)
+        _validate_final_numbering(document_bytes, numbering_bytes, styles_bytes)
     except (ET.ParseError, ValueError) as exc:
         errors.append({"code": "DOCX-PACKAGE-NUMBERING", "message": str(exc)})
         return

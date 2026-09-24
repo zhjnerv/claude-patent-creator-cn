@@ -25,9 +25,11 @@ REQUIRED_SKILLS = (
 RUNTIME_ENTRIES = (
     ".codex-plugin", "assets", "references", "scripts", "skills",
     "AGENTS.md", "CHANGELOG.md", "LICENSE", "README.md", "pyproject.toml",
+    "模版.docx",
 )
 SOURCE_SUFFIXES = frozenset({".py", ".md", ".json", ".toml", ".txt"})
 ROOT_TEXT_FILES = frozenset({"LICENSE", ".gitignore", ".gitattributes"})
+APPROVED_BINARY_ASSETS = frozenset({"模版.docx"})
 CACHE_DIRS = frozenset({".git", ".venv", "venv", ".pytest_cache", "__pycache__"})
 LOCAL_DIRS = frozenset({".local-case-archive", "archive", "dist", "build", "tmp", "temp"})
 
@@ -56,7 +58,11 @@ def collect_source_files(root: Path, *, distribution_only: bool = True) -> tuple
                     visit(child)
             elif not path.is_file():
                 errors.append(f"不是普通源文件：{relative}")
-            elif path.suffix.lower() not in SOURCE_SUFFIXES and str(relative) not in ROOT_TEXT_FILES:
+            elif (
+                path.suffix.lower() not in SOURCE_SUFFIXES
+                and str(relative) not in ROOT_TEXT_FILES
+                and relative.as_posix() not in APPROVED_BINARY_ASSETS
+            ):
                 errors.append(f"未获准分发的文件类型（临时产物或未经审核的资产）：{relative}")
             else:
                 files.append(path)

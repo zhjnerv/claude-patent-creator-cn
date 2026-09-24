@@ -412,6 +412,181 @@ def test_select_step_ilvl_falls_back_to_zero_for_single_level_template():
         module.select_step_ilvl(set())
 
 
+def test_template_step_ilvl_prefers_demonstrated_level_over_smallest_sublevel():
+    module = ASSEMBLER
+    document = Document()
+    paragraph = document.add_paragraph("权利要求")
+    numpr = OxmlElement("w:numPr")
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), "0")
+    numid = OxmlElement("w:numId")
+    numid.set(qn("w:val"), "29")
+    numpr.extend((ilvl, numid))
+    paragraph._p.get_or_add_pPr().append(numpr)
+    step = document.add_paragraph("S101：步骤")
+    step_numpr = OxmlElement("w:numPr")
+    step_ilvl = OxmlElement("w:ilvl")
+    step_ilvl.set(qn("w:val"), "2")
+    step_numid = OxmlElement("w:numId")
+    step_numid.set(qn("w:val"), "29")
+    step_numpr.extend((step_ilvl, step_numid))
+    step._p.get_or_add_pPr().append(step_numpr)
+
+    assert module.template_step_ilvl(document, 29, {0, 1, 2}) == 2
+    assert module.template_step_ilvl(Document(), 29, {0, 1, 2}) == 1
+
+
+def test_template_step_ilvl_rejects_multiple_demonstrated_levels():
+    module = ASSEMBLER
+    document = Document()
+    for level in (1, 2):
+        paragraph = document.add_paragraph(f"步骤{level}")
+        numpr = OxmlElement("w:numPr")
+        ilvl = OxmlElement("w:ilvl")
+        ilvl.set(qn("w:val"), str(level))
+        numid = OxmlElement("w:numId")
+        numid.set(qn("w:val"), "29")
+        numpr.extend((ilvl, numid))
+        paragraph._p.get_or_add_pPr().append(numpr)
+    with pytest.raises(ValueError, match="多个步骤层级"):
+        module.template_step_ilvl(document, 29, {0, 1, 2})
+
+
+def test_numbering_style_link_uses_linked_levels_and_rejects_cycles():
+    numbering = ASSEMBLER._numbering
+    styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="numbering" w:styleId="a">
+    <w:name w:val="权利要求书的特殊列表样式"/>
+    <w:pPr><w:numPr><w:numId w:val="15"/></w:numPr></w:pPr>
+  </w:style>
+</w:styles>
+""".encode()
+    linked = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="19">
+    <w:lvl w:ilvl="0"><w:start w:val="1"/></w:lvl>
+    <w:lvl w:ilvl="2"><w:start w:val="1"/></w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="21">
+    <w:numStyleLink w:val="a"/>
+  </w:abstractNum>
+  <w:num w:numId="15"><w:abstractNumId w:val="19"/></w:num>
+  <w:num w:numId="29"><w:abstractNumId w:val="21"/></w:num>
+</w:numbering>
+""".encode()
+    assert numbering._parse_final_numbering(linked, styles) == {15: {0, 2}, 29: {0, 2}}
+    with pytest.raises(ValueError, match="缺少 word/styles.xml"):
+        numbering._parse_final_numbering(linked, None)
+
+    cycle = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="1"><w:numStyleLink w:val="a"/></w:abstractNum>
+  <w:num w:numId="15"><w:abstractNumId w:val="1"/></w:num>
+</w:numbering>
+""".encode()
+    with pytest.raises(ValueError, match="编号样式链接循环"):
+        numbering._parse_final_numbering(cycle, styles)
+
+
+def test_repository_template_is_default_and_assembles_claim_steps(tmp_path):
+    module = ASSEMBLER
+    template = module.project_application_template()
+    assert template == ROOT / "模版.docx"
+    assert template.is_file()
+    assert module.resolve_application_template(None) == template.resolve()
+    custom = tmp_path / "其他模板.docx"
+    custom.write_bytes(b"PK")
+    assert module.resolve_application_template(custom) == custom.resolve()
+
+    source = tmp_path / "02-申请文件"
+    figures = source / "说明书附图"
+    figures.mkdir(parents=True)
+    (source / "权利要求书.md").write_text(
+        "# 权利要求书\n\n"
+        "1. 一种方法，其特征在于，包括：S101：获取输入；S102：输出结果。\n\n"
+        "2. 根据权利要求1所述的方法，其特征在于，还包括校验。\n",
+        encoding="utf-8",
+    )
+    (source / "说明书.md").write_text(
+        "# 示例装置\n\n## 技术领域\n\n涉及示例技术。\n\n"
+        "## 背景技术\n\n现有方案不足。\n\n## 发明内容\n\n提供示例方案。\n\n"
+        "## 附图说明\n\n图1为本申请一实施方式中的结构图。\n\n图中：100-示例模块。\n\n"
+        "## 具体实施方式\n\n以下结合附图说明本发明的具体实施例。\n\n### 实施例1。\n\n"
+        "如图1所示，示例模块100执行处理。\n",
+        encoding="utf-8",
+    )
+    (source / "说明书摘要.md").write_text(
+        "# 示例装置\n\n本发明提供一种示例装置。\n\n摘要附图：图1。\n",
+        encoding="utf-8",
+    )
+    Image.new("RGB", (200, 100), "white").save(figures / "图1.png")
+    (source / "说明书附图.md").write_text(
+        "# 说明书附图\n\n## 图1 结构图\n\n![图1](说明书附图/图1.png)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "申请文件.docx"
+    report = module.build_document(source, template, output, None)
+    assert report["status"] == "STRUCTURE_VERIFIED"
+    assert report["inputs"]["template"] == str(template.resolve())
+    errors = []
+    module._numbering.check_docx_package(output, errors)
+    assert errors == [], errors
+    with ZipFile(output) as archive:
+        root = etree.fromstring(archive.read("word/document.xml"))
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    steps = []
+    for paragraph in root.xpath(".//w:p", namespaces=ns):
+        text = "".join(paragraph.xpath(".//w:t/text()", namespaces=ns))
+        if not text.startswith("S101"):
+            continue
+        numid = paragraph.xpath("./w:pPr/w:numPr/w:numId/@w:val", namespaces=ns)
+        ilvl = paragraph.xpath("./w:pPr/w:numPr/w:ilvl/@w:val", namespaces=ns)
+        steps.append((numid, ilvl, text))
+    assert steps == [(["29"], ["2"], "S101：获取输入；")]
+    placeholders = (
+        "通过skill写专利",
+        "泡一杯茶",
+        "零度可乐",
+        "异构多源医学影像",
+        "大模型获取模块",
+    )
+    with ZipFile(template) as archive:
+        template_images = {
+            archive.read(name)
+            for name in archive.namelist()
+            if name.startswith("word/media/")
+        }
+    with ZipFile(output) as archive:
+        visible = []
+        for name in archive.namelist():
+            if not (name == "word/document.xml" or name.startswith("word/header") or name.startswith("word/footer")):
+                continue
+            visible.append(archive.read(name).decode("utf-8"))
+        visible_text = "\n".join(visible)
+        for phrase in placeholders:
+            assert phrase not in visible_text
+        embeds = set(etree.fromstring(archive.read("word/document.xml")).xpath(
+            ".//*[local-name()='blip']/@*[local-name()='embed']"
+        ))
+        rels = etree.fromstring(archive.read("word/_rels/document.xml.rels"))
+        targets = {
+            rel.get("Id"): rel.get("Target")
+            for rel in rels
+        }
+        for embed in embeds:
+            target = "word/" + targets[embed].lstrip("/")
+            assert archive.read(target) not in template_images
+
+
+def test_missing_project_template_does_not_use_case_template(tmp_path, monkeypatch):
+    module = ASSEMBLER
+    monkeypatch.setattr(module, "project_application_template", lambda: tmp_path / "模版.docx")
+    (tmp_path / "输出模版.docx").write_bytes(b"PK")
+    with pytest.raises(FileNotFoundError, match="输出模版.docx"):
+        module.resolve_application_template(None)
+
+
 def test_claim_step_properties_picks_legal_ilvl_per_template(tmp_path):
     module = ASSEMBLER
     document = Document()

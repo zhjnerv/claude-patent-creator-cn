@@ -60,3 +60,18 @@ def test_package_verifier_uses_shared_distribution_boundary():
     assert "install_codex_skill.py" in verifier
     assert ".local-case-archive" in installer
     assert "SOURCE_SUFFIXES" in installer
+
+
+def test_project_docx_template_is_approved_for_distribution():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "cn_codex_install_policy_template", ROOT / "scripts" / "install_codex_skill.py"
+    )
+    assert spec is not None and spec.loader is not None
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    files, errors = installer.collect_source_files(ROOT, distribution_only=True)
+    assert errors == [], errors
+    assert ROOT / "模版.docx" in files
+    assert "模版.docx" in installer.APPROVED_BINARY_ASSETS

@@ -1,8 +1,8 @@
-# Word 模板组装（用户要求或案件存在输出模板时）
+# Word 模板组装（用户要求单一 Word 文件时）
 
-### Word 模板组装（用户要求或案件存在输出模板时）
+### Word 模板组装（用户要求单一 Word 文件时）
 
-当用户要求单一 Word 文件，或案件根目录存在用户指定的 `输出模版.docx` 时，读取 `references/docx-assembly.md`（含阶段 6 组装门禁、待决标记与两种副本）并运行 `scripts/assemble_application_docx.py`；随后必须运行 `scripts/verify_docx_assembly.py`，附图属于交付范围时再运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`。DOCX 是交付容器，不是第五类法定技术文书。
+当用户要求单一 Word 文件时，读取 `references/docx-assembly.md`（含阶段 6 组装门禁、待决标记与两种副本）并运行 `scripts/assemble_application_docx.py`。默认模板是仓库根目录 `模版.docx`；只有显式 `--template` 才替换。随后必须运行 `scripts/verify_docx_assembly.py`，附图属于交付范围时再运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`。DOCX 是交付容器，不是第五类法定技术文书。
 
 本技能的最终交付目录固定只包含四类技术文书：
 
@@ -11,7 +11,7 @@
 - **说明书摘要**（不超过 300 字）并在摘要正文或交付约定位置指定**摘要附图**；
 - **说明书附图**（保留可直接编辑的 `.drawio` 母版，并从确认后的母版导出符合后续申报处理要求的 300-DPI PNG；不再生成 SVG 过程文件；母版和导出文件均须检查节点与字号比例、文字是否溢出、线条、箭头及文字是否重叠）。
 
-用户要求单一 DOCX 或案件存在用户指定输出模板时，另交付一个包含上述四文书的合并 `.docx`；它是交付容器，不是第五类法定技术文书。
+用户要求单一 DOCX 时，另交付一个包含上述四文书的合并 `.docx`，默认套用仓库根目录 `模版.docx`；它是交付容器，不是第五类法定技术文书。
 
 申请人、发明人、联系电话、地址、联系人、代理机构、签章、费用减缴及请求书字段不属于本技能交付范围，不得作为四文书生成完成的阻断项。序列表、生物材料保藏证明、遗传资源声明、优先权文件和第二十四条证明等条件性程序材料也不进入四文书交付目录；如技术方案触发相关事项，只在审查工作区记录缺口和提醒，不得静默认定不适用。
 

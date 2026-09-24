@@ -57,6 +57,8 @@ EXPECTED_HEADERS = ["权利要求书", "说明书", "说明书附图", "说明�
 REQUIRED_PARAGRAPH_STYLES = ["Normal (Web)", "Title", "Heading 1", "正文2", "附图图号"]
 REQUIRED_CHARACTER_STYLE = "Strong"  # 中文 Word 界面显示为“要点”
 REPORT_SCHEMA = "cn-patent-docx-assembly/v2"
+PROJECT_TEMPLATE_NAME = "模版.docx"
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 CJK_RE = re.compile(r"[\u3400-\u9fff]")
 DISPLAY_FORMULA_RE = re.compile(r"=")
@@ -399,25 +401,48 @@ _numbering = importlib.util.module_from_spec(_numbering_spec)
 _numbering_spec.loader.exec_module(_numbering)
 
 
-def _parse_numbering_bytes(numbering_bytes: bytes) -> dict[int, set[int]]:
-    return _numbering._parse_final_numbering(numbering_bytes)
+def _parse_numbering_bytes(
+    numbering_bytes: bytes, styles_bytes: bytes | None = None,
+) -> dict[int, set[int]]:
+    return _numbering._parse_final_numbering(numbering_bytes, styles_bytes)
 
 
 def parse_template_numbering(template_path: Path) -> dict[int, set[int]] | None:
     """缺少编号部件返回 None；损坏或非法编号定义明确失败。"""
     with ZipFile(template_path) as archive:
-        if "word/numbering.xml" not in archive.namelist():
+        names = set(archive.namelist())
+        if "word/numbering.xml" not in names:
             return None
+        styles_bytes = archive.read("word/styles.xml") if "word/styles.xml" in names else None
         try:
-            return _parse_numbering_bytes(archive.read("word/numbering.xml"))
+            return _parse_numbering_bytes(archive.read("word/numbering.xml"), styles_bytes)
         except (_numbering.ET.ParseError, ValueError) as exc:
             raise ValueError(f"模板 numbering.xml 无效：{exc}") from exc
+
+
+def project_application_template() -> Path:
+    """仓库根目录的最终专利申请文件模板。"""
+    return REPO_ROOT / PROJECT_TEMPLATE_NAME
+
+
+def resolve_application_template(explicit: Path | None) -> Path:
+    """默认使用项目模板。案件目录中的 ``输出模版.docx`` 不参与选择。"""
+    if explicit is not None:
+        return explicit.expanduser().resolve()
+    template = project_application_template()
+    if not template.is_file():
+        raise FileNotFoundError(
+            f"未找到项目专利申请模板：{template}。"
+            "不要改用案件目录中的输出模版.docx；如需替换，请显式传入 --template。"
+        )
+    return template.resolve()
 
 
 def select_step_ilvl(available_levels: set[int]) -> int:
     """为步骤段落选择模板已定义的层级：优先 ``>0`` 的最小层级，否则退回 ``0``。
 
     单级模板只定义 ``ilvl=0`` 时，步骤段落也使用 ``ilvl=0``（避免引用未定义层级）。
+    项目模板若在正文中示范了另一个步骤层级，由 ``template_step_ilvl`` 优先采用示范值。
     """
 
     if not available_levels:
@@ -429,7 +454,33 @@ def select_step_ilvl(available_levels: set[int]) -> int:
     return ordered[0]
 
 
-def claim_step_properties(claim_ppr, available_levels: set[int]):
+def template_step_ilvl(doc: Document, claim_num_id: int, available_levels: set[int]) -> int:
+    """模板正文已经示范步骤层级时采用该层级，否则退回最小可用子层。"""
+    observed: list[int] = []
+    for paragraph in doc.paragraphs:
+        ppr = paragraph._p.pPr
+        if ppr is None or ppr.numPr is None:
+            continue
+        numid = ppr.numPr.find(qn("w:numId"))
+        if numid is None or numid.get(qn("w:val")) != str(claim_num_id):
+            continue
+        ilvl = ppr.numPr.find(qn("w:ilvl"))
+        raw = "0" if ilvl is None or ilvl.get(qn("w:val")) is None else ilvl.get(qn("w:val"))
+        if not raw.isdigit():
+            continue
+        level = int(raw)
+        if level > 0 and level in available_levels and level not in observed:
+            observed.append(level)
+    if len(observed) > 1:
+        raise ValueError(
+            f"模板权利要求 numId={claim_num_id} 示范了多个步骤层级 {observed}，无法确定应使用哪一层"
+        )
+    if len(observed) == 1:
+        return observed[0]
+    return select_step_ilvl(available_levels)
+
+
+def claim_step_properties(claim_ppr, available_levels: set[int], step_ilvl: int | None = None):
     """复制模板权利要求属性，并把 ilvl 切到模板已定义的步骤层级。"""
 
     result = deepcopy(claim_ppr)
@@ -439,11 +490,14 @@ def claim_step_properties(claim_ppr, available_levels: set[int]):
     numid = numpr.find(qn("w:numId"))
     if numid is None or numid.get(qn("w:val")) is None:
         raise ValueError("模板权利要求 numPr 缺少 numId，无法生成步骤段落")
+    level = select_step_ilvl(available_levels) if step_ilvl is None else step_ilvl
+    if level not in available_levels:
+        raise ValueError(f"步骤层级 ilvl={level} 不在模板编号定义中")
     ilvl = numpr.find(qn("w:ilvl"))
     if ilvl is None:
         ilvl = OxmlElement("w:ilvl")
         numpr.insert(0, ilvl)
-    ilvl.set(qn("w:val"), str(select_step_ilvl(available_levels)))
+    ilvl.set(qn("w:val"), str(level))
     ind = result.find(qn("w:ind"))
     if ind is not None:
         result.remove(ind)
@@ -1090,10 +1144,14 @@ def inspect_package(
     template_numbering: dict[int, set[int]] | None = None,
 ) -> dict:
     with ZipFile(path) as archive:
+        names = set(archive.namelist())
         document_bytes = archive.read("word/document.xml")
-        numbering_bytes = archive.read("word/numbering.xml") if "word/numbering.xml" in archive.namelist() else None
+        numbering_bytes = archive.read("word/numbering.xml") if "word/numbering.xml" in names else None
+        styles_bytes = archive.read("word/styles.xml") if "word/styles.xml" in names else None
         root = etree.fromstring(document_bytes)
-    final_numbering = None if numbering_bytes is None else _parse_numbering_bytes(numbering_bytes)
+    final_numbering = (
+        None if numbering_bytes is None else _parse_numbering_bytes(numbering_bytes, styles_bytes)
+    )
     namespaces = {
         "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
         "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
@@ -1154,9 +1212,6 @@ def build_document(
         None,
     )
     template_numbering = parse_template_numbering(template_path)
-    clear_body_keep_final_sectpr(doc, section_props[-1])
-
-    last = None
     claim_numpr = claim_ppr.find(qn("w:numPr"))
     claim_numid_elem = claim_numpr.find(qn("w:numId")) if claim_numpr is not None else None
     claim_num_id_value: int | None = None
@@ -1173,10 +1228,15 @@ def build_document(
             raise ValueError(
                 f"权利要求模板引用了未定义或无真实层级的 numId={claim_num_id_value}"
             )
+        step_ilvl = template_step_ilvl(doc, claim_num_id_value, available_levels)
     else:
         # numId=0 是取消编号；不为取消编号的段落伪造编号实例。
         available_levels = {0}
-    step_ppr = claim_step_properties(claim_ppr, available_levels)
+        step_ilvl = 0
+    clear_body_keep_final_sectpr(doc, section_props[-1])
+
+    last = None
+    step_ppr = claim_step_properties(claim_ppr, available_levels, step_ilvl)
     claim_idx = 1
     for claim in claims:
         parts = split_claim_paragraphs(claim)
@@ -1330,7 +1390,7 @@ def build_document(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-dir", required=True, type=Path, help="案件根目录")
-    parser.add_argument("--template", type=Path, help="输出模板，默认 <case-dir>/输出模版.docx")
+    parser.add_argument("--template", type=Path, help="输出模板；默认仓库根目录模版.docx，不读取案件目录")
     parser.add_argument("--source-dir", type=Path, help="申请文件目录，默认 <case-dir>/02-申请文件")
     parser.add_argument("--output", type=Path, help="输出 DOCX 路径")
     parser.add_argument(
@@ -1360,7 +1420,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     case_dir = args.case_dir.resolve()
-    template = (args.template or case_dir / "输出模版.docx").resolve()
+    template = resolve_application_template(args.template)
     source_dir = (args.source_dir or case_dir / "02-申请文件").resolve()
     title_items = parse_specification(source_dir / "说明书.md")
     title = next(item.text for item in title_items if item.kind == "title")

@@ -7,10 +7,9 @@
 满足任一条件时执行：
 
 - 用户要求“合并成一个 Word / DOCX”；
-- 案件根目录存在 `输出模版.docx`，且用户要求按该模板输出；
 - 交付要求明确包含单一 DOCX 申请文件。
 
-未提供模板时不得猜造专用模板。可以继续交付四文书源文件，并把 DOCX 组装标记为待完成。
+默认模板是仓库根目录的 `模版.docx`。未找到该文件时不得猜造专用模板，也不得改用案件目录中的 `输出模版.docx`。可以继续交付四文书源文件，并把 DOCX 组装标记为待完成。只有显式传入 `--template` 才替换项目模板。
 
 ## 输入合同
 
@@ -18,7 +17,6 @@
 
 ```text
 <案件目录>/
-├─ 输出模版.docx
 └─ 02-申请文件/
    ├─ 权利要求书.md
    ├─ 说明书.md
@@ -28,6 +26,14 @@
       ├─ 图1-....png
       └─ ...
 ```
+
+项目模板位于：
+
+```text
+<仓库根目录>/模版.docx
+```
+
+`模版.docx` 正文中的示例权利要求、说明书、图号和示例图只用于展示版式，不是申请内容。组装前会删除全部正文，只保留分节、页眉页脚、页码、行号、样式和权利要求编号定义。最终文字只来自本案四文书，最终图片只来自本案 PNG。模板里的占位句、旧发明名称和示例图不得出现在成品页面中。
 
 模板必须满足：
 
@@ -88,7 +94,8 @@ ED_CT=Q_CT×C_CT(P,a)
 ## 说明书与权利要求排版合同
 
 - 说明书正文不得输出 `[0001]`、`[0002]` 等段落编号；解析旧源文件时统一移除该类前缀。
-- 方法权利要求包含连续 `Sxxx：` 步骤时，权利要求首句保留一级自动编号，各步骤分别形成独立段落并使用模板权利要求多级列表的步骤层级。
+- 方法权利要求包含连续 `Sxxx：` 步骤时，权利要求首句保留一级自动编号，各步骤分别形成独立段落。步骤层级优先采用模板正文已经示范的 `numId/ilvl`；`模版.docx` 的示范是权利要求 `numId=29` 的第 2 层（`numFmt=none`，不额外生成字母编号）。模板没有示范步骤段时，才退回已定义的最小子层；单级模板使用第 0 层。
+- `模版.docx` 的权利要求编号通过 `w:numStyleLink` 指向编号样式，抽象编号本身没有 `w:lvl`。组装和复验必须顺着样式解析真实层级，不能把这种编号当成空定义。
 - “附图说明”必须一图一句，只说明图名，不展开解释图中模块、流程、分支或技术效果；随后单独保留一段以“图中：”开头的附图标记说明。
 - “具体实施方式”标题之后先写结合附图说明具体实施例的引导段，再设置明显的“实施例1。”标题，然后进入实施例正文。
 - 实施例正文必须穿插引用全部说明书附图，例如“如图1所示”“结合图2所示”，不得把附图解释全部堆在“附图说明”中。
@@ -134,7 +141,7 @@ python skills/cn-patent-application-creator/scripts/assemble_application_docx.py
 ```powershell
 python skills/cn-patent-application-creator/scripts/assemble_application_docx.py `
   --case-dir "<案件目录>" `
-  --template "<案件目录>/输出模版.docx" `
+  --template "<仅在替换项目模板时传入>" `
   --source-dir "<案件目录>/02-申请文件" `
   --output "<案件目录>/发明名称-专利申请文件.docx" `
   --work-dir "<案件目录>/03-审查工作区/docx组装-YYYYMMDD-HHMMSS"
@@ -228,7 +235,7 @@ python skills/cn-patent-application-creator/scripts/verify_docx_assembly.py \
 
 > 本节中的 `$ROOT` 为 `SKILL.md`「运行根目录」一节定义的运行根目录变量。
 
-当用户要求单一 Word 文件，或者案件根目录存在用户指定的 `输出模版.docx` 时，读取 `$ROOT/skills/cn-patent-application-creator/references/docx-assembly.md`，运行 `scripts/assemble_application_docx.py`。DOCX 是四类技术文书的机械组装形式，不改变“四文书”业务边界。
+当用户要求单一 Word 文件时，读取 `$ROOT/skills/cn-patent-application-creator/references/docx-assembly.md`，运行 `scripts/assemble_application_docx.py`。默认模板是 `$ROOT/模版.docx`。DOCX 是四类技术文书的机械组装形式，不改变“四文书”业务边界。
 
 必须遵守以下门禁：
 

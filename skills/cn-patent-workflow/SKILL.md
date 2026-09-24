@@ -44,7 +44,7 @@ allowed-tools: Bash, Read, Write
 - 文件形式与完整性：调用 `cn-patent-formalities-reviewer`。
 - 完整申请审查和证据绑定：调用 `cn-patent-reviewer`。
 - 中国专利说明书附图：调用 `cn-patent-diagram-generator`。
-- DOCX 只在用户要求 Word 或案件存在指定模板时，读取 `cn-patent-application-creator/references/docx-assembly.md`。
+- DOCX 只在用户要求 Word 交付时组装，默认模板是仓库根目录 `模版.docx`；读取 `cn-patent-application-creator/references/docx-assembly.md`。
 
 ## 连续工作
 
