@@ -13,7 +13,7 @@
 2. **`待决文件.md`**
    必须用 `--docx` 指向最终申请文件。脚本只把这份 Markdown 写到该 docx 的同目录，文件名固定，不能改成别的清单名。`--allow-detached` 只给测试用。
 3. **正文标记** `【待决-Dnnn】`
-   写在受影响的权利要求、说明书或摘要里。审稿版整段黄底；提交副本剥离标记和黄底。组装器不读 `待决文件.md`，所以改 Markdown 不会自动改 docx。
+   只在组装审稿版时打上。`assemble_application_docx.py --copy review --pending-decisions` 读取 `pending-decisions.json`，仅为 `target.kind` 是 `claim`、`specification` 或 `abstract` 的条目加标记。摘要一级标题上的标记并入摘要正文。`dc:title` 和默认文件名去掉待决标记。源稿和审查包保持不动。审稿版整段黄底；提交副本剥离标记和黄底。组装器不读 `待决文件.md`，所以改 Markdown 不会自动改 docx。
 
 ## 人怎么改
 

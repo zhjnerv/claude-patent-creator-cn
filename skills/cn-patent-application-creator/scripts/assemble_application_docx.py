@@ -710,7 +710,14 @@ def parse_abstract(path: Path) -> tuple[str, int]:
         raise ValueError(f"预期一个摘要正文段落，实际为 {len(body)} 个")
     if figure_number is None:
         raise ValueError("说明书摘要未指定“摘要附图：图N。”")
-    return body[0], figure_number
+    abstract_text = body[0]
+    title_marks = PENDING_MARK_RE.findall(blocks[0])
+    if title_marks:
+        prefix = "".join(
+            f"【待决-D{mark}】" for mark in title_marks if f"【待决-D{mark}】" not in abstract_text
+        )
+        abstract_text = prefix + abstract_text
+    return abstract_text, figure_number
 
 
 def resolve_figure_path(index_path: Path, raw_target: str) -> Path:
@@ -893,6 +900,85 @@ def apply_highlight(run) -> None:
     hl = OxmlElement("w:highlight")
     hl.set(qn("w:val"), "yellow")
     rPr.append(hl)
+
+
+CLAIM_LOCATOR_RE = re.compile(r"(?:权利要求|claim[-_ ]?)(\d+)", re.IGNORECASE)
+
+
+def load_review_injections(path: Path | None) -> list[dict[str, str]]:
+    """只从待决 JSON 取需要打进正文的条目。源稿本身不写标记。"""
+
+    if path is None:
+        return []
+    if not path.is_file():
+        raise FileNotFoundError(f"待决清单不存在：{path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    decisions = payload.get("decisions") if isinstance(payload, dict) else None
+    if not isinstance(decisions, list):
+        raise ValueError("待决清单的 decisions 必须是数组")
+    injections: list[dict[str, str]] = []
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            continue
+        target = decision.get("target") if isinstance(decision.get("target"), dict) else {}
+        kind = target.get("kind")
+        locator = target.get("locator")
+        decision_id = decision.get("id")
+        if kind not in {"claim", "specification", "abstract"}:
+            continue
+        if not isinstance(decision_id, str) or not re.fullmatch(r"D\d{3}", decision_id):
+            continue
+        if not isinstance(locator, str) or not locator.strip():
+            continue
+        injections.append({"id": decision_id, "kind": kind, "locator": locator.strip()})
+    return injections
+
+
+def prepend_pending_mark(text: str, decision_id: str) -> str:
+    mark = f"【待决-{decision_id}】"
+    if mark in text:
+        return text
+    return mark + text
+
+
+def inject_review_marks(
+    claims: list[str],
+    specification: list[SpecItem],
+    abstract: str,
+    injections: list[dict[str, str]],
+    copy_kind: str,
+) -> tuple[list[str], list[SpecItem], str]:
+    """审稿版按待决清单打标记；提交版不打，源稿保持原样。"""
+
+    if copy_kind != "review" or not injections:
+        return claims, specification, abstract
+    claims = list(claims)
+    specification = list(specification)
+    for item in sorted(injections, key=lambda value: value["id"]):
+        mark_id = item["id"]
+        locator = item["locator"]
+        if item["kind"] == "claim":
+            match = CLAIM_LOCATOR_RE.search(locator)
+            index = int(match.group(1)) - 1 if match else 0
+            if not 0 <= index < len(claims):
+                index = 0
+            claims[index] = prepend_pending_mark(claims[index], mark_id)
+            continue
+        if item["kind"] == "abstract":
+            abstract = prepend_pending_mark(abstract, mark_id)
+            continue
+        target_index = 0
+        if locator in {"发明名称", "title", "说明书标题"}:
+            target_index = next((i for i, spec in enumerate(specification) if spec.kind == "title"), 0)
+        else:
+            hits = [i for i, spec in enumerate(specification) if locator in spec.text]
+            if len(hits) == 1:
+                target_index = hits[0]
+            elif specification:
+                target_index = next((i for i, spec in enumerate(specification) if spec.kind == "title"), 0)
+        current = specification[target_index]
+        specification[target_index] = SpecItem(current.kind, prepend_pending_mark(current.text, mark_id))
+    return claims, specification, abstract
 
 
 def process_pending_marks(text: str, copy_kind: str, location: str, pending_marks: list) -> tuple[str, bool]:
@@ -1181,6 +1267,7 @@ def build_document(
     output_path: Path,
     render_dir: Path | None,
     copy_kind: str = "review",
+    pending_decisions_path: Path | None = None,
 ) -> dict:
     claims_path = source_dir / "权利要求书.md"
     spec_path = source_dir / "说明书.md"
@@ -1193,6 +1280,13 @@ def build_document(
     claims = parse_claims(claims_path)
     specification = parse_specification(spec_path)
     abstract, abstract_figure_number = parse_abstract(abstract_path)
+    claims, specification, abstract = inject_review_marks(
+        claims,
+        specification,
+        abstract,
+        load_review_injections(pending_decisions_path),
+        copy_kind,
+    )
     figures = parse_figures(figure_index_path)
     validate_specification_structure(specification, figures)
     by_number = {figure.number: figure for figure in figures}
@@ -1278,7 +1372,7 @@ def build_document(
     add_abstract_figure(doc, by_number[abstract_figure_number])
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    title = next(item.text for item in specification if item.kind == "title")
+    title = PENDING_MARK_RE.sub("", next(item.text for item in specification if item.kind == "title")).strip()
     doc.core_properties.title = title
     doc.core_properties.subject = "中国发明专利申请文件"
     doc.save(output_path)
@@ -1341,7 +1435,14 @@ def build_document(
             ] + [
                 {"artifact_id": f"figure_{figure.number}", "path": str(figure.path.resolve()), "sha256": file_sha256(figure.path)}
                 for figure in figures
-            ],
+            ] + (
+                [{
+                    "artifact_id": "pending_decisions",
+                    "path": str(pending_decisions_path.resolve()),
+                    "sha256": file_sha256(pending_decisions_path),
+                }]
+                if pending_decisions_path is not None else []
+            ),
         },
         "evidence_scope": {
             "proves": [
@@ -1414,6 +1515,11 @@ def parse_args() -> argparse.Namespace:
         default="review",
         help="生成副本类型",
     )
+    parser.add_argument(
+        "--pending-decisions",
+        type=Path,
+        help="待决清单。只在审稿版按其中 claim/specification/abstract 条目打标记，不改源稿。",
+    )
     return parser.parse_args()
 
 
@@ -1423,7 +1529,7 @@ def main() -> int:
     template = resolve_application_template(args.template)
     source_dir = (args.source_dir or case_dir / "02-申请文件").resolve()
     title_items = parse_specification(source_dir / "说明书.md")
-    title = next(item.text for item in title_items if item.kind == "title")
+    title = PENDING_MARK_RE.sub("", next(item.text for item in title_items if item.kind == "title")).strip()
     safe_title = re.sub(r"[^\w\-\u4e00-\u9fff]", "_", title).strip("_")
     output = (args.output or case_dir / f"{safe_title}-专利申请文件.docx").resolve()
     work_dir = (
@@ -1434,7 +1540,14 @@ def main() -> int:
         raise ValueError("--visual-review 与兼容参数 --no-render 不能同时使用")
     render_dir = work_dir / "render" if args.visual_review else None
 
-    report = build_document(source_dir, template, output, render_dir, args.copy)
+    report = build_document(
+        source_dir,
+        template,
+        output,
+        render_dir,
+        args.copy,
+        args.pending_decisions.resolve() if args.pending_decisions else None,
+    )
     work_dir.mkdir(parents=True, exist_ok=True)
     report_path = work_dir / "docx-assembly-report.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

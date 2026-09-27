@@ -937,3 +937,96 @@ def test_pending_decisions_markers(tmp_path):
     res_broken = subprocess.run(cmd_broken, capture_output=True, text=True)
     assert res_broken.returncode != 0
     assert "提交副本存在残缺待决标记" in res_broken.stderr
+
+
+def test_review_marks_come_from_pending_json_and_leave_sources_and_title_clean(tmp_path):
+    import json
+    import subprocess
+
+    case_dir = tmp_path / "case"
+    source_dir = case_dir / "02-申请文件"
+    source_dir.mkdir(parents=True)
+    _write_test_template(case_dir / "输出模版.docx")
+    spec = "# 测试发明【待决-D009】\n\n## 技术领域\n\n测试领域\n\n## 背景技术\n\n测试背景\n\n## 发明内容\n\n内容\n\n## 附图说明\n\n图1为结构示意图。\n\n图中：1。 \n\n## 具体实施方式\n\n以下结合附图说明本发明的具体实施例。\n\n### 实施例1。\n\n结合图1所示，具体测试\n"
+    claims = "# 权利要求书\n\n1. 一种测试。\n2. 如权利要求1的测试\n"
+    abstract = "# 说明书摘要【待决-D004】\n\n摘要正文\n\n摘要附图：图1。\n"
+    (source_dir / "说明书.md").write_text(spec, encoding="utf-8")
+    (source_dir / "权利要求书.md").write_text(claims, encoding="utf-8")
+    (source_dir / "说明书摘要.md").write_text(abstract, encoding="utf-8")
+    (source_dir / "说明书附图.md").write_text("## 图1 结构示意图\n![](fig1.png)\n", encoding="utf-8")
+    Image.new("RGB", (100, 100)).save(source_dir / "fig1.png")
+    before = {path.name: path.read_bytes() for path in source_dir.glob("*.md")}
+
+    script_path = ROOT / "skills/cn-patent-application-creator/scripts/assemble_application_docx.py"
+    verify_script = ROOT / "skills/cn-patent-application-creator/scripts/verify_docx_assembly.py"
+    result = subprocess.run(
+        [sys.executable, str(script_path), "--case-dir", str(case_dir), "--copy", "review"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    out_review = case_dir / "测试发明-专利申请文件.docx"
+    assert out_review.is_file()
+    assert not (case_dir / "测试发明【待决-D009】-专利申请文件.docx").exists()
+    assert {path.name: path.read_bytes() for path in source_dir.glob("*.md")} == before
+    with ZipFile(out_review) as archive:
+        document = archive.read("word/document.xml").decode("utf-8")
+        core = archive.read("docProps/core.xml").decode("utf-8")
+    assert "【待决-D009】" in document
+    assert "【待决-D004】" in document
+    assert "【待决" not in core
+
+    pending = {
+        "decisions": [
+            {"id": "D010", "target": {"kind": "claim", "locator": "权利要求1"}},
+            {"id": "D011", "target": {"kind": "specification", "locator": "发明名称"}},
+            {"id": "D012", "target": {"kind": "abstract", "locator": "摘要正文"}},
+            {"id": "D013", "target": {"kind": "process", "locator": "检索"}},
+        ]
+    }
+    pending_path = tmp_path / "pending-decisions.json"
+    pending_path.write_text(json.dumps(pending, ensure_ascii=False), encoding="utf-8")
+    clean_case = tmp_path / "clean"
+    clean_source = clean_case / "02-申请文件"
+    clean_source.mkdir(parents=True)
+    _write_test_template(clean_case / "输出模版.docx")
+    clean_spec = spec.replace("【待决-D009】", "")
+    clean_abstract = abstract.replace("【待决-D004】", "")
+    (clean_source / "说明书.md").write_text(clean_spec, encoding="utf-8")
+    (clean_source / "权利要求书.md").write_text(claims, encoding="utf-8")
+    (clean_source / "说明书摘要.md").write_text(clean_abstract, encoding="utf-8")
+    (clean_source / "说明书附图.md").write_text("## 图1 结构示意图\n![](fig1.png)\n", encoding="utf-8")
+    Image.new("RGB", (100, 100)).save(clean_source / "fig1.png")
+    clean_before = {path.name: path.read_bytes() for path in clean_source.glob("*.md")}
+    review = clean_case / "review.docx"
+    submission = clean_case / "submission.docx"
+    review_result = subprocess.run(
+        [sys.executable, str(script_path), "--case-dir", str(clean_case),
+         "--output", str(review), "--copy", "review", "--pending-decisions", str(pending_path)],
+        capture_output=True, text=True,
+    )
+    assert review_result.returncode == 0, review_result.stderr
+    submission_result = subprocess.run(
+        [sys.executable, str(script_path), "--case-dir", str(clean_case),
+         "--output", str(submission), "--copy", "submission", "--pending-decisions", str(pending_path)],
+        capture_output=True, text=True,
+    )
+    assert submission_result.returncode == 0, submission_result.stderr
+    assert {path.name: path.read_bytes() for path in clean_source.glob("*.md")} == clean_before
+    with ZipFile(review) as archive:
+        review_xml = archive.read("word/document.xml").decode("utf-8")
+        review_core = archive.read("docProps/core.xml").decode("utf-8")
+    with ZipFile(submission) as archive:
+        submission_xml = archive.read("word/document.xml").decode("utf-8")
+        submission_core = archive.read("docProps/core.xml").decode("utf-8")
+    for mark in ("【待决-D010】", "【待决-D011】", "【待决-D012】"):
+        assert mark in review_xml
+        assert mark not in submission_xml
+    assert "【待决-D013】" not in review_xml
+    assert "【待决" not in review_core
+    assert "【待决" not in submission_core
+    work_dirs = sorted((clean_case / "03-审查工作区").glob("docx组装-*"))
+    verified = subprocess.run(
+        [sys.executable, str(verify_script), "--report", str(work_dirs[-1] / "docx-assembly-report.json")],
+        capture_output=True, text=True,
+    )
+    assert verified.returncode == 0, verified.stdout + verified.stderr

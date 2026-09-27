@@ -102,7 +102,7 @@ python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-application-creato
 
 技术相关性与 IPC 决定“能不能借鉴”，很容易同时满足；申请人/代理机构决定“文本质量值不值得学”，默认合计占一半权重。主体质量分来自 `references/notable-entities.txt` 名单命中（Tier 1 = 1.00、Tier 2 = 0.70、未上榜 = 0.30、缺著录 = 0.00）。改权重必须四项同时给出且和为 1；技术相关性与 IPC 必须保持正权重。
 
-**范本由用户确认，不由本技能替用户选定**；未确认前阶段门记 `pending` 并写入待决清单，按默认起草策略继续，只有文件缺失、哈希不一致或 schema 错误才阻断。检索清单生成、候选门槛与排序命令的完整说明见 `references/search-and-template-flow.md`；评分算法、IPC 相似度分层与 EPO 降级规则见 `references/template-ipc-selection.md`。
+**范本由用户确认，不由本技能替用户选定**；未确认前阶段门记 `pending` 并写入待决清单。已经检索到并写出 `template-style-guide.json` 的范本，确认前仍作为风格参照进入 `style-brief.json`，不得退回默认风格，也不得停下来等确认。只有用户明确拒绝，或尚未检索到范本时，才用默认起草策略。已经有候选却没有风格指南、文件缺失、哈希不一致或 schema 错误才阻断。技术内容不得从范本抄入。检索清单生成、候选门槛与排序命令的完整说明见 `references/search-and-template-flow.md`；评分算法、IPC 相似度分层与 EPO 降级规则见 `references/template-ipc-selection.md`。
 ### 2-B：提取范本风格并生成起草简报
 
 范本全文优先用现有 BigQuery 专利全文工具获取，否则由用户提供 UTF-8 文本。每篇范本运行 `analyze_template_style.py` 生成 `cn-patent-template-style/v1` 风格指南；多篇必须用 `merge_template_styles.py` 合成（禁止手写，组织方式取最保守值）；再由 `style_applicator.py` 生成 `cn-patent-style-brief/v1` 起草简报。
@@ -150,7 +150,7 @@ python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-application-creato
   --selection "<template-selection.json>" --output "<stage2-gate.json>"
 ```
 
-判断题类门（检索未完成、范本未确认、IPC 缺用户原话等）**不阻断**：按保守默认继续并写入待决清单（`CLEARED_WITH_PENDING`）。只有文件缺失、哈希不一致或 schema 错误才以退出码 2 阻断。状态位表、`cn-patent-stage2-gate/v2` 字段与待决形状见 `references/stage2-gate.md`。
+判断题类门（检索未完成、范本尚未选定、IPC 缺用户原话等）**不阻断**：按保守默认继续并写入待决清单（`CLEARED_WITH_PENDING`）。范本的保守默认不是丢掉已检索范本：有风格指南时继续按该风格起草。只有文件缺失、哈希不一致、已检索候选却没有风格指南，或 schema 错误才以退出码 2 阻断。状态位表、`cn-patent-stage2-gate/v2` 字段与待决形状见 `references/stage2-gate.md`。
 ## 阶段 3——权利要求优先的撰写
 
 先写权利要求再写说明书：权利要求决定保护边界，说明书负责支持与解释。**权利要求书、说明书、说明书摘要、说明书附图必须由同一张特征台账派生**，不得各自维护一套编号。
@@ -200,10 +200,10 @@ python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-reviewer/scripts/v
 
 ## 阶段 5——两支红队，而不是一支
 
-必须跑两支独立红队：一支攻击权利要求的保护范围与创造性，一支攻击组装好的文件包（形式、支持、附图、DOCX）。攻击清单、常见漏攻项与处置规则见 `references/red-team-and-packaging.md`。红队结论写入审查报告并绑定产物哈希。
+必须跑两支独立红队：一支攻击权利要求的保护范围与创造性，一支攻击组装好的文件包（形式、支持、附图、DOCX）。攻击清单、常见漏攻项与处置规则见 `references/red-team-and-packaging.md`。报告使用 `cn-patent-red-team-report/v1`，由 `scripts/validate_red_team_report.py` 对照权利要求书、说明书、摘要、附图四份字节复核。结果只允许「攻击奏效 / 攻击未奏效 / 证据不足」；只有「攻击奏效」记 `RETURN_TO_DRAFTING` 并打回撰写。待决项放在同一报告的 `pending_decisions`，形状必须能被 `collect_pending_decisions.py` 直接读取。不要手写补丁报告，也不要给审查合同另加字段。
 ## 阶段 6——打包
 
-先汇总待决事项，再出两种副本。判断题不让流程停下：各脚本采用保守默认，并在 `pending_decisions` 留痕。打包前用 `collect_pending_decisions.py --docx <最终申请文件.docx>` 汇总；人读文件只能是该 docx 同目录的 `待决文件.md`。审稿版继续黄底标出 `【待决-Dnnn】`。交付范围和打包门禁见 `references/red-team-and-packaging.md`，回读规则见 `references/pending-decisions.md`。
+先汇总待决事项，再出两种副本。判断题不让流程停下：各脚本采用保守默认，并在 `pending_decisions` 留痕。打包前用 `collect_pending_decisions.py --docx <最终申请文件.docx>` 汇总；人读文件只能是该 docx 同目录的 `待决文件.md`。审稿版在组装时按 `pending-decisions.json` 打上 `【待决-Dnnn】` 并黄底标出；源稿和审查包不写标记，提交版继续剥离。交付范围和打包门禁见 `references/red-team-and-packaging.md`，回读规则见 `references/pending-decisions.md`。
 ### Word 模板组装（用户要求单一 Word 文件时）
 
 用户要求单一 Word 文件时，读取 `references/docx-assembly.md`（含阶段 6 组装门禁、待决标记与两种副本）并运行 `scripts/assemble_application_docx.py`。默认模板是仓库根目录 `模版.docx`，不读取案件目录的 `输出模版.docx`；只有显式 `--template` 才替换。随后必须运行 `scripts/verify_docx_assembly.py`，附图属于交付范围时再运行 `cn-patent-diagram-generator/scripts/verify_drawing_docx_delivery.py`。DOCX 是交付容器，不是第五类法定技术文书。

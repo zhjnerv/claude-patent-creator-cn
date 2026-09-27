@@ -245,11 +245,16 @@ def check_pending_marks(path: Path, copy_kind: str, pending_marks: list | None, 
         pending_marks = []
     try:
         with ZipFile(path) as archive:
-            if "word/document.xml" not in archive.namelist():
-                return
-            document_text = archive.read("word/document.xml").decode("utf-8")
-    except Exception:
+            names = set(archive.namelist())
+            document_text = archive.read("word/document.xml").decode("utf-8") if "word/document.xml" in names else ""
+            core_text = archive.read("docProps/core.xml").decode("utf-8") if "docProps/core.xml" in names else ""
+    except (OSError, UnicodeError, KeyError):
         return
+
+    title_match = re.search(r"<dc:title[^>]*>(.*?)</dc:title>", core_text, re.DOTALL)
+    core_title = title_match.group(1) if title_match else ""
+    if "【待决" in core_title:
+        errors.append({"code": "DOCX-PENDING-MARKS", "message": "核心属性标题不得保留待决标记"})
 
     if copy_kind == "submission":
         if "【待决" in document_text:
@@ -261,6 +266,7 @@ def check_pending_marks(path: Path, copy_kind: str, pending_marks: list | None, 
             pm_id = pm.get("id")
             if pm_id and f"【待决-{pm_id}】" not in document_text:
                 errors.append({"code": "DOCX-PENDING-MARKS", "message": f"客户审稿版丢失待决标记 {pm_id}"})
+
 
 def verify(report_path: Path) -> dict[str, Any]:
     report_path = report_path.resolve()

@@ -60,3 +60,12 @@ python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-application-creato
 
 **5b. 文件包红队（整个工件）。** 只攻击权利要求不够：四文书交付包可以有完美的权利要求却仍然不能作为最终技术文书。把**组装好的四文书交付包**——权利要求书、说明书、说明书摘要和说明书附图，别的都没有——交给一个零战役上下文的全新对抗性审查者，任务是找出：四文书之间的内部矛盾（发明名称是否一致、权利要求项数与技术方案是否对得上、摘要是否准确概括且未扩大、附图说明的图号与实施方式引用是否逐号对应、附图标记与正文名称是否逐字一致）；与工件本身矛盾的验证陈述；早于最后一次编辑的印章；日期错误；不得提交的策略性评注；大而化之的现有技术定性；无依据的权利要求用语。申请人、发明人、联系电话、地址、联系人、代理机构等请求书主体字段不在本红队和本技能交付范围内。
 
+红队结论写成 `cn-patent-red-team-report/v1`，不要另写一份补丁报告，也不要给审查合同的 `exact_fields` 增加字段。主会话可以按同一份攻击清单写报告。报告必须绑定权利要求书、说明书、说明书摘要、说明书附图四份文书的 SHA-256；`scripts/validate_red_team_report.py` 按案件目录重算字节，不一致即失败。每条攻击的 `result` 只允许「攻击奏效」「攻击未奏效」「证据不足」。只有存在「攻击奏效」时，`disposition` 才能是 `RETURN_TO_DRAFTING`，并打回撰写；另外两种结果保持 `NO_RETURN`。需要人决定的事项放在同一报告顶层的 `pending_decisions`，字段与 `collect_pending_decisions.py` 已能读取的条目相同，不预写 `Dnnn` 编号。没有 CNIPA 逐项比对时，新颖性和创造性保持 `INCONCLUSIVE`。
+
+```bash
+python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-application-creator/scripts/validate_red_team_report.py" \
+  --case-dir "<案件根目录>" \
+  --report "<red-team-report.json>" \
+  --output "<red-team-validation.json>"
+```
+
