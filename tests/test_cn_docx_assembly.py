@@ -977,10 +977,34 @@ def test_review_marks_come_from_pending_json_and_leave_sources_and_title_clean(t
 
     pending = {
         "decisions": [
-            {"id": "D010", "target": {"kind": "claim", "locator": "权利要求1"}},
-            {"id": "D011", "target": {"kind": "specification", "locator": "发明名称"}},
-            {"id": "D012", "target": {"kind": "abstract", "locator": "摘要正文"}},
-            {"id": "D013", "target": {"kind": "process", "locator": "检索"}},
+            {
+                "id": "D010",
+                "target": {"kind": "claim", "locator": "权利要求1"},
+                "question": "权利要求1是否保留弹性连接？",
+                "adopted_default": "保留弹性连接",
+                "options": ["保留弹性连接", "改为刚性连接"],
+            },
+            {
+                "id": "D011",
+                "target": {"kind": "specification", "locator": "发明名称"},
+                "question": "发明名称是否改为滑台润滑结构？",
+                "adopted_default": "维持测试发明",
+                "options": ["维持测试发明", "改为滑台润滑结构"],
+            },
+            {
+                "id": "D012",
+                "target": {"kind": "abstract", "locator": "摘要正文"},
+                "question": "摘要是否写明供油路径？",
+                "adopted_default": "不写供油路径",
+                "options": ["不写供油路径", "补写供油路径"],
+            },
+            {
+                "id": "D013",
+                "target": {"kind": "process", "locator": "检索"},
+                "question": "检索未完成时是否继续撰写？",
+                "adopted_default": "按保守默认继续撰写",
+                "options": ["按保守默认继续撰写", "暂停并补检索"],
+            },
         ]
     }
     pending_path = tmp_path / "pending-decisions.json"
@@ -999,15 +1023,19 @@ def test_review_marks_come_from_pending_json_and_leave_sources_and_title_clean(t
     clean_before = {path.name: path.read_bytes() for path in clean_source.glob("*.md")}
     review = clean_case / "review.docx"
     submission = clean_case / "submission.docx"
+    review_work = clean_case / "review-work"
+    submission_work = clean_case / "submission-work"
     review_result = subprocess.run(
         [sys.executable, str(script_path), "--case-dir", str(clean_case),
-         "--output", str(review), "--copy", "review", "--pending-decisions", str(pending_path)],
+         "--output", str(review), "--copy", "review", "--pending-decisions", str(pending_path),
+         "--work-dir", str(review_work)],
         capture_output=True, text=True,
     )
     assert review_result.returncode == 0, review_result.stderr
     submission_result = subprocess.run(
         [sys.executable, str(script_path), "--case-dir", str(clean_case),
-         "--output", str(submission), "--copy", "submission", "--pending-decisions", str(pending_path)],
+         "--output", str(submission), "--copy", "submission", "--pending-decisions", str(pending_path),
+         "--work-dir", str(submission_work)],
         capture_output=True, text=True,
     )
     assert submission_result.returncode == 0, submission_result.stderr
@@ -1018,15 +1046,119 @@ def test_review_marks_come_from_pending_json_and_leave_sources_and_title_clean(t
     with ZipFile(submission) as archive:
         submission_xml = archive.read("word/document.xml").decode("utf-8")
         submission_core = archive.read("docProps/core.xml").decode("utf-8")
-    for mark in ("【待决-D010】", "【待决-D011】", "【待决-D012】"):
-        assert mark in review_xml
+    visible = (
+        "权利要求1是否保留弹性连接？",
+        "保留弹性连接",
+        "改为刚性连接",
+        "发明名称是否改为滑台润滑结构？",
+        "维持测试发明",
+        "摘要是否写明供油路径？",
+        "不写供油路径",
+        "补写供油路径",
+        "检索未完成时是否继续撰写？",
+        "按保守默认继续撰写",
+        "暂停并补检索",
+        "当前稿已经按",
+        "【/待决】",
+    )
+    for snippet in visible:
+        assert snippet in review_xml
+        assert snippet not in submission_xml
+    for mark in ("【待决-D010】", "【待决-D011】", "【待决-D012】", "【待决-D013】"):
+        assert mark not in review_xml
         assert mark not in submission_xml
-    assert "【待决-D013】" not in review_xml
+    assert "【待决" not in submission_xml
+    assert 'w:val="yellow"' not in submission_xml
     assert "【待决" not in review_core
     assert "【待决" not in submission_core
-    work_dirs = sorted((clean_case / "03-审查工作区").glob("docx组装-*"))
-    verified = subprocess.run(
-        [sys.executable, str(verify_script), "--report", str(work_dirs[-1] / "docx-assembly-report.json")],
+    review_doc = Document(review)
+    assert all("【待决" not in paragraph.text for paragraph in review_doc.paragraphs if "一种测试" in paragraph.text)
+    notes = [paragraph.text for paragraph in review_doc.paragraphs if paragraph.text.startswith("【待决】")]
+    assert len(notes) == 4
+    for paragraph in review_doc.paragraphs:
+        if not paragraph.text.startswith("【待决】"):
+            continue
+        numid = paragraph._p.find(qn("w:pPr")).find(qn("w:numPr")).find(qn("w:numId"))
+        assert numid.get(qn("w:val")) == "0"
+    for report in (review_work / "docx-assembly-report.json", submission_work / "docx-assembly-report.json"):
+        verified = subprocess.run(
+            [sys.executable, str(verify_script), "--report", str(report)],
+            capture_output=True, text=True,
+        )
+        assert verified.returncode == 0, verified.stdout + verified.stderr
+    incomplete = dict(pending)
+    incomplete["decisions"] = [{
+        "id": "D014",
+        "target": {"kind": "claim", "locator": "权利要求2"},
+        "question": "权利要求2是否删除？",
+    }]
+    incomplete_path = tmp_path / "incomplete-pending.json"
+    incomplete_path.write_text(json.dumps(incomplete, ensure_ascii=False), encoding="utf-8")
+    rejected = subprocess.run(
+        [sys.executable, str(script_path), "--case-dir", str(clean_case),
+         "--output", str(clean_case / "rejected.docx"), "--copy", "review",
+         "--pending-decisions", str(incomplete_path),
+         "--work-dir", str(clean_case / "rejected-work")],
         capture_output=True, text=True,
     )
-    assert verified.returncode == 0, verified.stdout + verified.stderr
+    assert rejected.returncode != 0
+    assert "没有备选" in rejected.stderr
+
+
+def test_pending_injection_must_be_decidable_without_other_files(tmp_path):
+    import json
+
+    path = tmp_path / "pending.json"
+    path.write_text(json.dumps({
+        "decisions": [{
+            "id": "D001",
+            "target": {"kind": "claim", "locator": "权利要求1"},
+            "question": "权利要求1是否保留弹性连接？",
+            "adopted_default": "保留弹性连接",
+        }]
+    }, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ValueError, match="没有备选"):
+        ASSEMBLER.load_review_injections(path)
+
+    path.write_text(json.dumps({
+        "decisions": [{
+            "id": "D001",
+            "target": {"kind": "claim", "locator": "权利要求1"},
+            "question": "权利要求1是否保留弹性连接？",
+            "adopted_default": "保留弹性连接",
+            "options": ["保留弹性连接", "改为刚性连接"],
+        }]
+    }, ensure_ascii=False), encoding="utf-8")
+    note = ASSEMBLER.render_pending_note(ASSEMBLER.load_review_injections(path)[0])
+    assert note.startswith("【待决】")
+    assert note.endswith("【/待决】")
+    assert "D001" not in note
+    assert "权利要求1是否保留弹性连接？" in note
+    assert "当前稿已经按「保留弹性连接」处理" in note
+    assert "改为刚性连接" in note
+
+
+def test_application_pending_is_inserted_beside_its_claim():
+    claims = ["一种装置。", "一种冷镦机。"]
+    specification = [ASSEMBLER.SpecItem("title", "测试发明")]
+    item = {
+        "id": "D005",
+        "kind": "application",
+        "locator": "权利要求11",
+        "question": "权11是否改为从属于权1？",
+        "adopted_default": "权11保持独立权利要求",
+        "options": ["维持独立权利要求", "改为从属权利要求"],
+    }
+    # 只有两项时，越界项号按现有合同落到首项，避免整条待决消失。
+    notes = ASSEMBLER.plan_review_notes(claims, specification, [item], "review")
+    assert notes["claims"][0][0]["question"].startswith("权11")
+    assert "D005" not in notes["claims"][0][0]["text"]
+
+    located = dict(item, locator="权利要求2")
+    notes = ASSEMBLER.plan_review_notes(claims, specification, [located], "review")
+    assert 1 in notes["claims"]
+    assert "改为从属权利要求" in notes["claims"][1][0]["text"]
+
+    applicant = dict(item, id="D004", locator="applicant", question="申请人是否为甲公司？")
+    notes = ASSEMBLER.plan_review_notes(claims, specification, [applicant], "review")
+    assert notes["lead"][0]["locator"] == "applicant"

@@ -15,7 +15,7 @@ python3 "$ROOT/scripts/run_python.py" "$ROOT/skills/cn-patent-application-creato
 
 | 状态位 | 放行条件 |
 |---|---|
-| `cnipa_manual_search.status` | `completed` 须附逐条检索记录；`partial`／`not_completed` 无用户原话时按保守默认继续并写入待决清单 |
+| `cnipa_manual_search.status` | `completed` 须附逐条检索记录；`partial`／`not_completed` 无用户原话时按保守默认继续，并只写入一条流程待决，不得在各权利要求待决中重复 |
 | `template_selection.status` | `confirmed` 须列出已生成的 style-guide；`declined` 才改回默认风格；`pending` 在已有风格指南时，确认前仍按这些指南起草，并写入待决清单 |
 | 范本选择报告 | `cn-patent-template-selection/v2`，四项权重之和为 1、技术/IPC 正权重、四项加权得分可复算、选定范本主体著录与候选清单一一致 |
 | 选定范本主体著录 | 缺申请人或代理机构时按 0 分计并写入待决清单，指向技术+IPC 退化风险 |

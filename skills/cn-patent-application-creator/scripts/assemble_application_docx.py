@@ -68,6 +68,7 @@ CLAIM_STEP_RE = re.compile(r"(?=S\d{3}\s*[：:])")
 FIGURE_DESCRIPTION_RE = re.compile(r"^图\s*(\d+)\s*(?:为|是).+图[。.]$")
 FIGURE_CITATION_RE = re.compile(r"(?:如|参见|结合)图\s*(\d+)\s*(?:所示|可见)?|图\s*(\d+)\s*(?:所示|中)")
 PENDING_MARK_RE = re.compile(r"【待决-D(\d{3})】")
+PENDING_BLOCK_RE = re.compile(r"【待决】.*?【/待决】", re.DOTALL)
 INLINE_EQUATION_RE = re.compile(
     r"(?<![A-Za-z0-9_])"
     r"[A-Za-z][A-Za-z0-9_]*(?:_(?:[A-Za-z0-9]+|\([A-Za-z0-9+\-]+\)))?"
@@ -905,8 +906,17 @@ def apply_highlight(run) -> None:
 CLAIM_LOCATOR_RE = re.compile(r"(?:权利要求|claim[-_ ]?)(\d+)", re.IGNORECASE)
 
 
-def load_review_injections(path: Path | None) -> list[dict[str, str]]:
-    """只从待决 JSON 取需要打进正文的条目。源稿本身不写标记。"""
+def _required_text(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"待决项缺少{label}，不能只插入编号")
+    text = value.strip()
+    if "【" in text or "】" in text:
+        raise ValueError(f"待决项的{label}不能再嵌套待决标记")
+    return text
+
+
+def load_review_injections(path: Path | None) -> list[dict[str, Any]]:
+    """读取可在审稿版独立决定的待决项。源稿本身不写这些内容。"""
 
     if path is None:
         return []
@@ -916,7 +926,7 @@ def load_review_injections(path: Path | None) -> list[dict[str, str]]:
     decisions = payload.get("decisions") if isinstance(payload, dict) else None
     if not isinstance(decisions, list):
         raise ValueError("待决清单的 decisions 必须是数组")
-    injections: list[dict[str, str]] = []
+    injections: list[dict[str, Any]] = []
     for decision in decisions:
         if not isinstance(decision, dict):
             continue
@@ -924,76 +934,136 @@ def load_review_injections(path: Path | None) -> list[dict[str, str]]:
         kind = target.get("kind")
         locator = target.get("locator")
         decision_id = decision.get("id")
-        if kind not in {"claim", "specification", "abstract"}:
+        if kind not in {"claim", "specification", "abstract", "process", "ledger", "drawing", "review", "application"}:
             continue
         if not isinstance(decision_id, str) or not re.fullmatch(r"D\d{3}", decision_id):
-            continue
+            raise ValueError("待决项编号必须是 D 加三位数字，但正文不能只写这个编号")
         if not isinstance(locator, str) or not locator.strip():
-            continue
-        injections.append({"id": decision_id, "kind": kind, "locator": locator.strip()})
+            raise ValueError(f"{decision_id} 缺少位置")
+        options = decision.get("options")
+        if not isinstance(options, list) or not options:
+            raise ValueError(f"{decision_id} 没有备选，审稿人无法在正文里直接决定")
+        clean_options = [_required_text(item, "备选") for item in options]
+        injections.append({
+            "id": decision_id,
+            "kind": kind,
+            "locator": locator.strip(),
+            "question": _required_text(decision.get("question"), "问题"),
+            "adopted_default": _required_text(decision.get("adopted_default"), "当前稿做法"),
+            "options": clean_options,
+        })
     return injections
 
 
-def prepend_pending_mark(text: str, decision_id: str) -> str:
-    mark = f"【待决-{decision_id}】"
-    if mark in text:
-        return text
-    return mark + text
+def render_pending_note(item: dict[str, Any]) -> str:
+    """写成不看其他文件也能选择的一段话。编号不出现在正文里。"""
+
+    question = item["question"]
+    if question[-1:] not in "。？！":
+        question += "。"
+    options = "；".join(item["options"])
+    return (
+        f"【待决】位置：{item['locator']}。{question}"
+        f"当前稿已经按「{item['adopted_default']}」处理。"
+        f"请直接选择：{options}。【/待决】"
+    )
 
 
-def inject_review_marks(
+def plan_review_notes(
     claims: list[str],
     specification: list[SpecItem],
-    abstract: str,
-    injections: list[dict[str, str]],
+    injections: list[dict[str, Any]],
     copy_kind: str,
-) -> tuple[list[str], list[SpecItem], str]:
-    """审稿版按待决清单打标记；提交版不打，源稿保持原样。"""
+) -> dict[str, Any]:
+    """审稿版把完整问题放到对应正文旁边；提交版不插入。"""
 
+    notes: dict[str, Any] = {"lead": [], "claims": {}, "specification": {}, "abstract": []}
     if copy_kind != "review" or not injections:
-        return claims, specification, abstract
-    claims = list(claims)
-    specification = list(specification)
+        return notes
+    def title_index() -> int:
+        return next((i for i, spec in enumerate(specification) if spec.kind == "title"), 0)
+
+    def claim_index(value: str) -> int | None:
+        match = CLAIM_LOCATOR_RE.search(value)
+        if match is None or not claims:
+            return None
+        index = int(match.group(1)) - 1
+        return index if 0 <= index < len(claims) else 0
+
     for item in sorted(injections, key=lambda value: value["id"]):
-        mark_id = item["id"]
+        note = {**item, "text": render_pending_note(item)}
         locator = item["locator"]
-        if item["kind"] == "claim":
-            match = CLAIM_LOCATOR_RE.search(locator)
-            index = int(match.group(1)) - 1 if match else 0
-            if not 0 <= index < len(claims):
-                index = 0
-            claims[index] = prepend_pending_mark(claims[index], mark_id)
-            continue
         if item["kind"] == "abstract":
-            abstract = prepend_pending_mark(abstract, mark_id)
-            continue
-        target_index = 0
-        if locator in {"发明名称", "title", "说明书标题"}:
-            target_index = next((i for i, spec in enumerate(specification) if spec.kind == "title"), 0)
-        else:
+            notes["abstract"].append(note)
+        elif item["kind"] == "claim":
+            notes["claims"].setdefault(0 if claim_index(locator) is None else claim_index(locator), []).append(note)
+        elif item["kind"] == "application" and claim_index(locator) is not None:
+            notes["claims"].setdefault(claim_index(locator), []).append(note)
+        elif locator in {"发明名称", "title", "说明书标题"}:
+            notes["specification"].setdefault(title_index(), []).append(note)
+        elif item["kind"] == "specification":
             hits = [i for i, spec in enumerate(specification) if locator in spec.text]
-            if len(hits) == 1:
-                target_index = hits[0]
-            elif specification:
-                target_index = next((i for i, spec in enumerate(specification) if spec.kind == "title"), 0)
-        current = specification[target_index]
-        specification[target_index] = SpecItem(current.kind, prepend_pending_mark(current.text, mark_id))
-    return claims, specification, abstract
+            notes["specification"].setdefault(hits[0] if len(hits) == 1 else title_index(), []).append(note)
+        elif claim_index(item["question"]) is not None and item["kind"] in {"application", "ledger", "review", "process", "drawing"}:
+            notes["claims"].setdefault(claim_index(item["question"]), []).append(note)
+        else:
+            notes["lead"].append(note)
+    return notes
+
+
+def add_pending_note(doc: Document, text: str):
+    """待决说明使用正文样式，不进入权利要求自动编号。"""
+
+    paragraph = doc.add_paragraph(style="正文2")
+    paragraph.paragraph_format.first_line_indent = Pt(0)
+    run = paragraph.add_run(text)
+    set_east_asia_font(run, "宋体")
+    run.font.size = Pt(12)
+    apply_highlight(run)
+    ppr = paragraph._p.get_or_add_pPr()
+    numbering = ppr.find(qn("w:numPr"))
+    if numbering is not None:
+        ppr.remove(numbering)
+    # numId=0 取消样式继承的编号，避免待决段占用权利要求编号。
+    numpr = OxmlElement("w:numPr")
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), "0")
+    numid = OxmlElement("w:numId")
+    numid.set(qn("w:val"), "0")
+    numpr.extend((ilvl, numid))
+    ppr.append(numpr)
+    return paragraph
+
+
+def remember_pending_note(pending_marks: list, note: dict[str, Any]) -> None:
+    pending_marks.append({
+        "id": note["id"],
+        "location": note["locator"],
+        "question": note["question"],
+        "adopted_default": note["adopted_default"],
+        "options": list(note["options"]),
+    })
+
+
+def strip_pending_text(text: str) -> str:
+    text = PENDING_BLOCK_RE.sub("", text)
+    text = PENDING_MARK_RE.sub("", text)
+    return text.strip()
 
 
 def process_pending_marks(text: str, copy_kind: str, location: str, pending_marks: list) -> tuple[str, bool]:
-    marks = PENDING_MARK_RE.findall(text)
-    if not marks:
-        if copy_kind == "submission" and "【待决" in text:
-            raise ValueError("提交副本存在残缺待决标记")
-        return text, False
-    for mark in marks:
-        pending_marks.append({"id": f"D{mark}", "location": location})
+    legacy = PENDING_MARK_RE.findall(text)
+    has_block = PENDING_BLOCK_RE.search(text) is not None
     if copy_kind == "submission":
+        text = PENDING_BLOCK_RE.sub("", text)
         text = PENDING_MARK_RE.sub("", text)
-        if "【待决" in text:
+        if "【待决" in text or "【/待决】" in text:
             raise ValueError("提交副本存在残缺待决标记")
         return text, False
+    if not legacy and not has_block:
+        return text, False
+    for mark in legacy:
+        pending_marks.append({"id": f"D{mark}", "location": location})
     return text, True
 
 
@@ -1280,10 +1350,9 @@ def build_document(
     claims = parse_claims(claims_path)
     specification = parse_specification(spec_path)
     abstract, abstract_figure_number = parse_abstract(abstract_path)
-    claims, specification, abstract = inject_review_marks(
+    review_notes = plan_review_notes(
         claims,
         specification,
-        abstract,
         load_review_injections(pending_decisions_path),
         copy_kind,
     )
@@ -1331,8 +1400,11 @@ def build_document(
 
     last = None
     step_ppr = claim_step_properties(claim_ppr, available_levels, step_ilvl)
+    for note in review_notes["lead"]:
+        last = add_pending_note(doc, note["text"])
+        remember_pending_note(pending_marks, note)
     claim_idx = 1
-    for claim in claims:
+    for claim_index, claim in enumerate(claims):
         parts = split_claim_paragraphs(claim)
         loc = f"权利要求{claim_idx}"
         claim_idx += 1
@@ -1347,14 +1419,20 @@ def build_document(
                 symbols,
                 highlight,
             )
+        for note in review_notes["claims"].get(claim_index, []):
+            last = add_pending_note(doc, note["text"])
+            remember_pending_note(pending_marks, note)
     if last is None:
         raise ValueError("权利要求为空")
     end_section(last, section_props[0])
 
-    for item in specification:
+    for spec_index, item in enumerate(specification):
         loc = f"说明书:{item.text[:20]}"
         processed_text, highlight = process_pending_marks(item.text, copy_kind, loc, pending_marks)
         last = add_spec_item(doc, item, registry, symbols, processed_text, highlight)
+        for note in review_notes["specification"].get(spec_index, []):
+            last = add_pending_note(doc, note["text"])
+            remember_pending_note(pending_marks, note)
     end_section(last, section_props[1])
 
     for index, figure in enumerate(figures):
@@ -1368,11 +1446,15 @@ def build_document(
     abstract_run.font.size = Pt(12)
     if highlight:
         apply_highlight(abstract_run)
-    end_section(abstract_p, section_props[3])
+    last_abstract = abstract_p
+    for note in review_notes["abstract"]:
+        last_abstract = add_pending_note(doc, note["text"])
+        remember_pending_note(pending_marks, note)
+    end_section(last_abstract, section_props[3])
     add_abstract_figure(doc, by_number[abstract_figure_number])
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    title = PENDING_MARK_RE.sub("", next(item.text for item in specification if item.kind == "title")).strip()
+    title = strip_pending_text(next(item.text for item in specification if item.kind == "title"))
     doc.core_properties.title = title
     doc.core_properties.subject = "中国发明专利申请文件"
     doc.save(output_path)
@@ -1518,7 +1600,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pending-decisions",
         type=Path,
-        help="待决清单。只在审稿版按其中 claim/specification/abstract 条目打标记，不改源稿。",
+        help="待决清单。审稿版在对应位置写入问题、当前稿做法和备选；不改源稿，提交版不插入。",
     )
     return parser.parse_args()
 
@@ -1529,7 +1611,7 @@ def main() -> int:
     template = resolve_application_template(args.template)
     source_dir = (args.source_dir or case_dir / "02-申请文件").resolve()
     title_items = parse_specification(source_dir / "说明书.md")
-    title = PENDING_MARK_RE.sub("", next(item.text for item in title_items if item.kind == "title")).strip()
+    title = strip_pending_text(next(item.text for item in title_items if item.kind == "title"))
     safe_title = re.sub(r"[^\w\-\u4e00-\u9fff]", "_", title).strip("_")
     output = (args.output or case_dir / f"{safe_title}-专利申请文件.docx").resolve()
     work_dir = (
