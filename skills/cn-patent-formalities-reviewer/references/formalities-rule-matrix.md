@@ -4,10 +4,10 @@
 
 本地正文统一存放于：
 
-- `${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/专利法(2020-10-17).md`
-- `${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/专利法实施细则(2023-12-21).md`
-- `${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/审查指南2026MD/guide-full.md`
-- `${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/审查指南2026MD/chapters/`
+- `${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/专利法(2020-10-17).md`
+- `${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/专利法实施细则(2023-12-21).md`
+- `${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/审查指南2026MD/guide-full.md`
+- `${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/审查指南2026MD/chapters/`
 
 | rule_id | 最低法源定位 | 适用性与证据边界 |
 |---|---|---|

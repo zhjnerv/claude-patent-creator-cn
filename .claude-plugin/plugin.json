@@ -1,5 +1,5 @@
 {
-  "name": "claude-patent-creator-cn",
+  "name": "cn-patent-agent-skills",
   "description": "中国发明专利起草、审查、附图和交付的轻量 Skill 包",
   "author": {
     "name": "zhjnerv"
@@ -13,6 +13,6 @@
     "drawio"
   ],
   "version": "0.3.0",
-  "homepage": "https://github.com/zhjnerv/claude-patent-creator-cn",
-  "repository": "https://github.com/zhjnerv/claude-patent-creator-cn"
+  "homepage": "https://github.com/zhjnerv/cn-patent-agent-skills",
+  "repository": "https://github.com/zhjnerv/cn-patent-agent-skills"
 }

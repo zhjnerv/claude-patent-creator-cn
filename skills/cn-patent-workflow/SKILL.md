@@ -12,13 +12,15 @@ allowed-tools: Bash, Read, Write
 
 按以下优先级确定项目根目录，并在本次任务的每条命令中使用同一个值：
 
-1. `CN_PATENT_CREATOR_ROOT`；
-2. 兼容变量 `CLAUDE_PATENT_CREATOR_CN_ROOT`；
-3. 插件环境的 `CLAUDE_PLUGIN_ROOT`；
-4. Codex Skill 一键安装默认目录 `${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn`。
+1. `CN_PATENT_AGENT_SKILLS_ROOT`；
+2. 兼容变量 `CN_PATENT_CREATOR_ROOT`；
+3. 兼容变量 `CLAUDE_PATENT_CREATOR_CN_ROOT`；
+4. 插件环境的 `CLAUDE_PLUGIN_ROOT`；
+5. Codex Skill 一键安装默认目录 `${CODEX_HOME:-$HOME/.codex}/vendor/cn-patent-agent-skills`。
 
-根目录必须同时存在 `.codex-plugin/plugin.json`、`skills/` 和
-`references/cn-legal-sources/source-index.json`，否则立即停止，不得猜测路径。
+根目录必须同时存在 `skills/`、`references/cn-legal-sources/source-index.json`
+以及至少一个平台插件清单（`.codex-plugin/plugin.json` 或
+`.claude-plugin/plugin.json`），否则立即停止，不得猜测路径。
 一键安装后的 Python 解释器位于根目录 `.venv`；涉及 DOCX 时必须使用该解释器。
 
 ## 子 Skill 调用方式

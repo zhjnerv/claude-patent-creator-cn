@@ -5,14 +5,14 @@
 统一共享根目录：
 
 ```text
-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/
+${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/
 ```
 
 | 法源 ID | 正式名称 | 施行/版本 | 本地来源 |
 |---|---|---|---|
-| `patent-law-2020` | 《中华人民共和国专利法》（2020 年修正） | 2021-06-01 | `${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/专利法(2020-10-17).md` |
-| `implementing-rules-2023` | 《中华人民共和国专利法实施细则》（2023 年修订） | 2024-01-20 | `${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/专利法实施细则(2023-12-21).md` |
-| `examination-guidelines-2026` | 《专利审查指南》及 2025 年修改决定 | 2026-01-01 | 全文：`${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/审查指南2026MD/guide-full.md`；分章：`${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/references/cn-legal-sources/审查指南2026MD/chapters/` |
+| `patent-law-2020` | 《中华人民共和国专利法》（2020 年修正） | 2021-06-01 | `${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/专利法(2020-10-17).md` |
+| `implementing-rules-2023` | 《中华人民共和国专利法实施细则》（2023 年修订） | 2024-01-20 | `${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/专利法实施细则(2023-12-21).md` |
+| `examination-guidelines-2026` | 《专利审查指南》及 2025 年修改决定 | 2026-01-01 | 全文：`${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/审查指南2026MD/guide-full.md`；分章：`${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT}}}}/references/cn-legal-sources/审查指南2026MD/chapters/` |
 
 | 主题 | 最低定位 |
 |---|---|

@@ -1,5 +1,5 @@
 [project]
-name = "claude-patent-creator-cn"
+name = "cn-patent-agent-skills"
 version = "0.3.0"
 description = "Lightweight Chinese patent drafting, review, drawing, and delivery skill package"
 readme = "README.md"

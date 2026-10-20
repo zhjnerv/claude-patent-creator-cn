@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 项目包名改为 `cn-patent-agent-skills`，GitHub 地址同步改为 <https://github.com/zhjnerv/cn-patent-agent-skills>。README 与运行根目录说明改为通用 Agent Skills 定位；新增 `CN_PATENT_AGENT_SKILLS_ROOT`，原有 `CN_PATENT_CREATOR_ROOT`、`CLAUDE_PATENT_CREATOR_CN_ROOT` 和 `CLAUDE_PLUGIN_ROOT` 继续兼容。七个 `cn-patent-*` Skill 名称不变。
 - DOCX 复验沿实际图片引用检查图号顺序、摘要附图和媒体字节，拒绝重复同名附图分节；坏 ZIP 保留结构化错误，失败时不签发图片已验证声明。见[组装规范](skills/cn-patent-application-creator/references/docx-assembly.md)。
 - 附图显式拒绝或检查失败不再转成普通待决；稳定性适配器按多图清单复核全部来源、母版与 PNG，合成图片仅由测试在临时目录生成。见[附图门禁](skills/cn-patent-diagram-generator/references/quality-gates.md)。
 - [安装器](scripts/install_codex_skill.py)在恢复旧目录前终止并核对受跟踪的依赖进程；无法证明停止时保留事务现场而不盲目恢复。必需资源预检与 pip 解耦，`--skip-deps` 不跳过模板、脚本、合同和法源检查；拒绝绝对路径、驱动器路径与目录逃逸。

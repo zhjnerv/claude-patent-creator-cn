@@ -29,7 +29,7 @@ def test_codex_skill_installer_installs_router_and_stage_skills(tmp_path):
     result = json.loads(completed.stdout)
     assert result["status"] == "PASS"
     assert result["entry_skill"] == "cn-patent-workflow"
-    runtime = codex_home / "vendor" / "claude-patent-creator-cn"
+    runtime = codex_home / "vendor" / "cn-patent-agent-skills"
     manifest = json.loads((runtime / "codex-install.json").read_text(encoding="utf-8"))
     assert manifest["invocation"] == "$cn-patent-workflow"
     assert len(manifest["skills"]) == 7
@@ -47,7 +47,7 @@ def test_codex_skill_installer_force_updates_existing_runtime(tmp_path):
         "--codex-home", str(codex_home), "--skip-deps",
     ]
     subprocess.run(base, check=True, capture_output=True, text=True)
-    marker = codex_home / "vendor" / "claude-patent-creator-cn" / "stale.txt"
+    marker = codex_home / "vendor" / "cn-patent-agent-skills" / "stale.txt"
     marker.write_text("stale", encoding="utf-8")
     completed = subprocess.run(
         [*base, "--force"], check=True, capture_output=True, text=True

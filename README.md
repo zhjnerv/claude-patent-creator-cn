@@ -1,10 +1,10 @@
-# Claude Patent Creator CN
+# 中国专利 Agent Skills（cn-patent-agent-skills）
 
-面向中国发明专利申请的 Codex Skill 工作流。项目以 `cn-patent-workflow` 为唯一总入口，按阶段加载六个专业子 Skill、本地中国法源和确定性校验脚本，完成检索准备、起草、附图、审查及 DOCX 交付。
+面向中国发明专利申请的通用 Agent Skills 包，可用于 Codex、Claude 以及其他支持 `SKILL.md` 的 Agent。项目以 `cn-patent-workflow` 为唯一总入口，按阶段加载六个专业子 Skill、本地中国法源和确定性校验脚本，完成检索准备、起草、附图、审查及 DOCX 交付。
 
 本仓库不包含美国 MPEP RAG、向量索引、Embedding、PyTorch 或主 MCP Server，也不把脚本输出冒充专利代理师的实体法律判断。
 
-## 一键安装到 Codex
+## 安装到 Codex
 
 从仓库根目录执行：
 
@@ -14,7 +14,7 @@ python3 scripts/install_codex_skill.py
 
 安装器会：
 
-1. 将完整运行时复制到 `${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn`；
+1. 将完整运行时复制到 `${CODEX_HOME:-$HOME/.codex}/vendor/cn-patent-agent-skills`；
 2. 在运行时创建 `.venv`，安装 DOCX 所需依赖并执行包边界检查；
 3. 将七个 Skill 链接或复制到 `${CODEX_HOME:-$HOME/.codex}/skills/`；
 4. 写入 `codex-install.json`，记录运行根目录、入口 Skill 和依赖状态。
@@ -45,6 +45,18 @@ $cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请
 
 `cn-patent-workflow` 只负责阶段判断和交接。它确定当前阶段后读取对应子 Skill 的 `SKILL.md`，完成后再回到总入口判断下一阶段；不会一次性把全部法源和全部规则塞入上下文。
 
+## 其他 Agent 使用
+
+把仓库放到任意固定目录，让 Agent 能读取其中的 `skills/*/SKILL.md`，并设置运行根目录：
+
+```bash
+export CN_PATENT_AGENT_SKILLS_ROOT=/path/to/cn-patent-agent-skills
+```
+
+Agent 只需先加载入口 `skills/cn-patent-workflow/SKILL.md`。根目录变量优先于历史兼容变量；脚本运行时使用仓库自带的 `scripts/run_python.py`，涉及 DOCX 时使用安装环境或仓库 `.venv` 的解释器。
+
+支持插件清单的宿主也可以直接读取 `.codex-plugin/plugin.json` 或 `.claude-plugin/plugin.json`。仓库不依赖特定宿主的 MCP Server、命令系统或模型供应商。
+
 ## Skill 组成与职责
 
 | Skill | 作用 | 主要输入 | 主要输出 |
@@ -57,7 +69,7 @@ $cn-patent-workflow 根据当前代码仓库起草一套中国发明专利申请
 | `cn-patent-reviewer` | 编排三类原始检查器和独立语义审查，冻结输入、规则及前置流程证据 | 四文书、manifest、provenance 工件 | review bundle、整改顺序、独立验证报告 |
 | `cn-patent-diagram-generator` | 分析用户修改范例，提取紧凑布局并从原始母版安全重建，再把 drawing brief v4 转成可编辑 Draw.io 附图，完成图文一致性、白边及DOCX交付绑定验收 | drawing brief、说明书、台账、架构合同；可选原图与用户范例 | style brief、安全重建报告、`.drawio`、PNG、视觉复核、附图验证及DOCX交付验证 |
 
-各 Skill 的名称均使用 Codex 要求的全小写 hyphen-case，`SKILL.md` frontmatter 已通过 Codex Skill 校验器。
+各 Skill 的名称均使用全小写 hyphen-case，`SKILL.md` frontmatter 已通过 Codex Skill 校验器。其他 Agent 只要支持标准 `SKILL.md` 目录结构，即可直接加载同一套 Skill。
 
 ## 完整执行流程
 

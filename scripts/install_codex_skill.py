@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
-PLUGIN_NAME = "claude-patent-creator-cn"
+PLUGIN_NAME = "cn-patent-agent-skills"
 
 REQUIRED_SKILLS = (
     "cn-patent-workflow", "cn-patent-application-creator", "cn-patent-claims-analyzer",
@@ -303,7 +303,7 @@ def check_package_integrity(root: Path) -> list[str]:
                 if not isinstance(version, str) or not version.strip():
                     errors.append("插件清单缺少有效 version")
     project = _read_required_text(root / "pyproject.toml", "pyproject.toml", errors)
-    if project is not None and 'name = "claude-patent-creator-cn"' not in project:
+    if project is not None and 'name = "cn-patent-agent-skills"' not in project:
         errors.append("pyproject.toml 不是本包项目文件")
     runner = _read_required_text(root / "scripts" / "run_python.py", "scripts/run_python.py", errors)
     if runner is not None and "def main" not in runner:

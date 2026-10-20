@@ -15,10 +15,10 @@ allowed-tools: Bash, Read, Write
 本文所有命令与路径以 `$ROOT` 指代运行根目录；在每个会话第一次执行命令前定义：
 
 ```bash
-ROOT="${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/claude-patent-creator-cn}}}"
+ROOT="${CN_PATENT_AGENT_SKILLS_ROOT:-${CN_PATENT_CREATOR_ROOT:-${CLAUDE_PATENT_CREATOR_CN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CODEX_HOME:-$HOME/.codex}/vendor/cn-patent-agent-skills}}}}"
 ```
 
-解析顺序与 `cn-patent-workflow` 一致：`CN_PATENT_CREATOR_ROOT` → `CLAUDE_PATENT_CREATOR_CN_ROOT` → `CLAUDE_PLUGIN_ROOT` → Codex 一键安装目录。`$ROOT` 下必须同时存在 `.codex-plugin/plugin.json`、`skills/` 和 `references/cn-legal-sources/source-index.json`，否则停止并报告，不得猜测路径。
+解析顺序与 `cn-patent-workflow` 一致：`CN_PATENT_AGENT_SKILLS_ROOT` → `CN_PATENT_CREATOR_ROOT` → `CLAUDE_PATENT_CREATOR_CN_ROOT` → `CLAUDE_PLUGIN_ROOT` → Codex 一键安装目录。`$ROOT` 下必须同时存在 `skills/`、`references/cn-legal-sources/source-index.json` 和至少一个平台插件清单，否则停止并报告，不得猜测路径。
 
 ## 共享本地法源（执行前读取）
 
